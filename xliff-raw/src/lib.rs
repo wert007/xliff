@@ -85,12 +85,14 @@ pub struct Segment {
 pub struct Source {
     // TODO: Formatting?
     #[serde(rename = "$text")]
+    #[serde(default)]
     text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Target {
     #[serde(rename = "$text")]
+    #[serde(default)]
     text: String,
 }
 
@@ -106,6 +108,7 @@ pub struct Data {
     #[serde(rename = "@dir")]
     dir: Direction,
     #[serde(rename = "$text")]
+    #[serde(default)]
     text: Vec<StringOrUnicode>,
 }
 
@@ -146,6 +149,7 @@ pub struct Notes {
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Note {
     #[serde(rename = "$text")]
+    #[serde(default)]
     text: String,
     #[serde(rename = "@id")]
     id: Option<String>,
@@ -170,7 +174,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn spec_example() {
+        let text = r#"
+        <xliff xmlns="urn:oasis:names:tc:xliff:document:2.2" version="2.2"
+    srcLang="en" trgLang="fr">
+  <file id="f1">
+    <notes>
+      <note id="n1">note for file.</note>
+    </notes>
+    <unit id="u1">
+      <my:elem xmlns:my="myNamespaceURI" id="x1">data</my:elem>
+      <notes>
+        <note id="n1">note for unit</note>
+      </notes>
+      <segment id="s1">
+        <source>Hello World!</source>
+        <target>Bonjour le Monde!</target>
+      </segment>
+    </unit>
+  </file>
+</xliff>
+        "#;
+        let _xliff: Xliff = quick_xml::de::from_str(text).unwrap();
+    }
+
+    #[test]
+    fn wikipedia_example() {
         let text = r#"
         <xliff xmlns="urn:oasis:names:tc:xliff:document:2.0" version="2.0"
  srcLang="en-US" trgLang="ja-JP">
@@ -197,8 +226,6 @@ mod tests {
  </file>
 </xliff>
         "#;
-        let xliff: Xliff = quick_xml::de::from_str(text).unwrap();
-        dbg!(xliff);
-        panic!();
+        let _xliff: Xliff = quick_xml::de::from_str(text).unwrap();
     }
 }
