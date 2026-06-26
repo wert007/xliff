@@ -1,3 +1,3 @@
 [workspace]
-members = ["xliff-raw"]
+members = ["xliff-cli","xliff-raw", "xliff-translation"]
 resolver = "3"
