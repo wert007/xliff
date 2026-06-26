@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 glob = "0.3.3"
 lasso = "0.7.3"
-llama-rs = "0.17.0"
 quick-xml = { version = "0.39.2", features = ["serde", "serialize"] }
 regex = "1.12.3"
 serde = "1.0.228"

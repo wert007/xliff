@@ -1,6 +1,5 @@
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
-use llama_rs::{GgufFile, default_backend};
 use xliff_translation::{LanguageStr, StringId, Translator, empty_string_id};
 
 mod ai;
@@ -51,7 +50,6 @@ struct Untranslated {
 }
 
 fn main() -> anyhow::Result<()> {
-    ai::init("./assets/madlad400.gguf")?;
     let args = Args::parse();
     let translator = args.create_translator()?;
     match args.command {
@@ -61,8 +59,14 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn generate_translation() -> StringId {
-    empty_string_id()
+fn generate_translation(translator: &mut Translator, source: StringId) -> StringId {
+    let english = translator.resolve(source);
+    ai::english_to_german(english)
+        .inspect_err(|e| {
+            dbg!(e);
+        })
+        .map(|s| translator.intern(s))
+        .unwrap_or(empty_string_id())
 }
 
 fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error> {
@@ -73,7 +77,7 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
             .get_translation(t.language, source)
             .first()
             .copied()
-            .unwrap_or_else(|| generate_translation());
+            .unwrap_or_else(|| generate_translation(&mut translator, source));
 
         print_bubble(translator.resolve(source), translator.resolve(t.id));
         let Some(translation) = inquire::Text::new("Add translation:")
