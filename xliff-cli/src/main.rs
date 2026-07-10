@@ -30,8 +30,38 @@ enum Command {
     Auto(Auto),
 }
 
+#[derive(
+    Debug,
+    Default,
+    strum::FromRepr,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum::Display,
+    strum::AsRefStr,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "kebab-case")]
+enum AutoTranslationHandling {
+    #[default]
+    Skip,
+    Translate,
+    TranslateAndShow,
+}
+
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
-struct Auto;
+struct Auto {
+    /// Automatically accept matches from existing translations, where there is only one possibility.
+    #[clap(short = 'u', long, default_value = "translate")]
+    unique: AutoTranslationHandling,
+    /// Automatically accept matches from existing translations, where there are multiple possibilities. Whichone will be choosen is not specified.
+    #[clap(short, long)]
+    multiple: AutoTranslationHandling,
+    /// Automatically accept ai translations.
+    #[clap(short, long)]
+    ai: AutoTranslationHandling,
+}
 
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
 struct Unify;
@@ -65,35 +95,57 @@ fn generate_translation(translator: &mut Translator, source: StringId) -> String
         .inspect_err(|e| {
             dbg!(e);
         })
-        .map(|s| translator.intern(s))
+        .map(|s| translator.intern(s.trim().into()))
         .unwrap_or(empty_string_id())
 }
 
 fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error> {
+    let mut skipped_translations = 0;
+    let mut made_translations = Vec::new();
     for t in translator.find_missing_translations() {
         let (source, target) =
             translator.get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), t.id)?;
-        let recommended = translator
-            .get_translation(t.language, source)
-            .first()
-            .copied()
-            .unwrap_or_else(|| generate_translation(&mut translator, source));
-
-        print_bubble(translator.resolve(source), translator.resolve(t.id));
-        let Some(translation) = inquire::Text::new("Add translation:")
-            .with_default(translator.resolve(recommended))
-            .prompt_skippable()?
-        else {
-            continue;
+        let options = translator.get_translation(t.language, source);
+        let (should_translate, recommended) = if options.len() == 0 {
+            (auto.ai, generate_translation(&mut translator, source))
+        } else if options.len() == 1 {
+            (auto.unique, options[0])
+        } else {
+            (auto.multiple, options[0])
         };
-        let translation = translator.intern(translation);
-        if recommended != empty_string_id()
-            && translation != recommended
-            && inquire::Confirm::new("Should all other values also be overwritten?").prompt()?
-        {
-            // Do something smart here!
+
+        if recommended == empty_string_id() {
+            skipped_translations += 1;
+            continue;
         }
-        translator.add_translation(t.language, t.id, translation)?;
+
+        match should_translate {
+            AutoTranslationHandling::Skip => {
+                skipped_translations += 1;
+                continue;
+            }
+            AutoTranslationHandling::Translate => {
+                translator.add_translation(t.language, t.id, recommended)?;
+            }
+            AutoTranslationHandling::TranslateAndShow => {
+                made_translations.push((t, source, recommended));
+            }
+        }
+    }
+    if skipped_translations > 0 {
+        eprintln!(
+            "Could not auto translate {skipped_translations} translations. Use untranslated command to manually fill or accept more things automatically."
+        );
+    }
+    for (_, s, t) in made_translations.iter().copied() {
+        println!("'{}' => '{}'", translator.resolve(s), translator.resolve(t));
+    }
+    if !made_translations.is_empty()
+        && inquire::Confirm::new("Are these translations acceptable?").prompt()?
+    {
+        for (m, _, t) in made_translations {
+            translator.add_translation(m.language, m.id, t)?;
+        }
     }
     translator.save_files()?;
     Ok(())

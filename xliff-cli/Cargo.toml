@@ -14,3 +14,4 @@ rust-bert = { version = "0.23.0" }
 indicatif = "0.17"
 tinystr = "0.8.3"
 xliff-translation = { version = "0.1.0", path = "../xliff-translation" }
+strum = { version = "0.28.0", features = ["derive"] }
