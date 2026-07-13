@@ -8,7 +8,7 @@ use std::{
 };
 
 use lasso::{Key, Rodeo, Spur};
-use xliff_raw::version_1_2::{BodyElement, Group, GroupElement, Target, TransUnit, Xliff};
+use xliff_raw::version_1_2::{BodyElement, Group, GroupElement, Source, Target, TransUnit, Xliff};
 
 pub type StringId = lasso::Spur;
 
@@ -171,23 +171,34 @@ impl TranslationFile {
         })
     }
 
-    fn add_translation(&mut self, id: Spur, translation: Spur, translation_str: String) {
-        let index = self.ids[&id];
-        self.ids_to_source_and_translation
-            .get_mut(&id)
-            .expect("This should exist")
-            .1 = Some(translation);
-        let BodyElement::Group(group) = &mut self.raw.files[index.file_index].body.elements[0]
-        else {
-            todo!("This is kind of a soft error, but also a hard error. hmm.")
-        };
-        let GroupElement::TransUnit(trans_unit) = &mut group.elements[index.trans_unit_index]
-        else {
-            todo!("This is kind of a soft error, but also a hard error. hmm.")
-        };
-        trans_unit.target = Some(Target {
-            text: translation_str,
-        });
+    fn add_translation(
+        &mut self,
+        id: Spur,
+        source: Spur,
+        translation: Spur,
+        translation_str: String,
+        interner: &mut Rodeo,
+    ) {
+        if let Some(index) = self.ids.get(&id) {
+            self.change_translation(id, *index, translation, translation_str);
+        } else {
+            let BodyElement::Group(group) = &mut self.raw.files[0].body.elements[0] else {
+                todo!("This is kind of a soft error, but also a hard error. hmm.")
+            };
+            let id = interner.resolve(&id).into();
+            let source = interner.resolve(&source).into();
+            group.elements.push(GroupElement::TransUnit(TransUnit {
+                id,
+                size_unit: None,
+                translate: None,
+                xml_space: xliff_raw::version_1_2::WhitespacePreservation::Default,
+                source: Source { text: source },
+                target: Some(Target {
+                    text: translation_str,
+                }),
+                note: Vec::new(),
+            }));
+        }
     }
 
     fn get_source_and_translation(&self, id: Spur) -> (Spur, Option<Spur>) {
@@ -245,6 +256,30 @@ impl TranslationFile {
         self.source_to_translation
             .get(&source)
             .unwrap_or(&EMPTY_VEC)
+    }
+
+    fn change_translation(
+        &mut self,
+        id: Spur,
+        index: FastIndex,
+        translation: Spur,
+        translation_str: String,
+    ) {
+        self.ids_to_source_and_translation
+            .get_mut(&id)
+            .expect("This should exist")
+            .1 = Some(translation);
+        let BodyElement::Group(group) = &mut self.raw.files[index.file_index].body.elements[0]
+        else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        let GroupElement::TransUnit(trans_unit) = &mut group.elements[index.trans_unit_index]
+        else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        trans_unit.target = Some(Target {
+            text: translation_str,
+        });
     }
 }
 
@@ -329,10 +364,17 @@ impl Translator {
         translation: Spur,
     ) -> Result<()> {
         let translation_str = self.resolve(translation).to_owned();
+        let (s, _) = self.base.ids_to_source_and_translation.get(&id).unwrap();
         self.languages
             .get_mut(&language)
             .ok_or(error::Error::LanguageNotFound(language))?
-            .add_translation(id, translation, translation_str);
+            .add_translation(
+                id,
+                *s,
+                translation,
+                translation_str,
+                &mut self.string_interner,
+            );
         Ok(())
     }
 
