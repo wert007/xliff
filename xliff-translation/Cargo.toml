@@ -9,7 +9,6 @@ lasso = "0.7.3"
 quick-xml = { version = "0.39.2", features = ["serde", "serialize"] }
 regex = "1.12.3"
 serde = "1.0.228"
-silo = { version = "0.1.0", path = "../../structured-sql/silo" }
 thiserror = "2.0.18"
 tinystr = "0.8.3"
 xliff-raw = { version = "0.1.0", path = "../xliff-raw" }

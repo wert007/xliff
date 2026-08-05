@@ -8,7 +8,9 @@ use std::{
 };
 
 use lasso::{Key, Rodeo, Spur};
-use xliff_raw::version_1_2::{BodyElement, Group, GroupElement, Source, Target, TransUnit, Xliff};
+use xliff_raw::version_1_2::relaxed::{
+    BodyElement, Group, GroupElement, Source, Target, TransUnit, Xliff,
+};
 
 pub type StringId = lasso::Spur;
 
@@ -25,6 +27,9 @@ impl Display for LanguageStr {
 }
 
 impl LanguageStr {
+    pub fn starts_with(&self, s: &str) -> bool {
+        self.0.starts_with(s)
+    }
     pub fn try_from_str(s: &str) -> std::result::Result<Self, tinystr::ParseError> {
         Ok(Self(tinystr::TinyAsciiStr::try_from_str(s)?))
     }
@@ -115,7 +120,7 @@ fn for_each_trans_unit_in_group(
 
 impl TranslationFile {
     fn new(file: &PathBuf, is_base: bool, string_interner: &mut Rodeo) -> Result<Self> {
-        let raw: xliff_raw::version_1_2::Xliff =
+        let raw: xliff_raw::version_1_2::relaxed::Xliff =
             quick_xml::de::from_reader(BufReader::new(File::open(file)?))?;
         let mut ids = HashMap::new();
         let mut translated_ids = HashSet::new();
@@ -191,7 +196,7 @@ impl TranslationFile {
                 id,
                 size_unit: None,
                 translate: None,
-                xml_space: xliff_raw::version_1_2::WhitespacePreservation::Default,
+                xml_space: xliff_raw::version_1_2::relaxed::WhitespacePreservation::Default,
                 source: Source { text: source },
                 target: Some(Target {
                     text: translation_str,

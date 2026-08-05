@@ -1,3 +1,8 @@
+use std::{
+    str::FromStr,
+    thread::{self, JoinHandle},
+};
+
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
 use xliff_translation::{LanguageStr, StringId, Translator, empty_string_id};
@@ -47,18 +52,18 @@ enum AutoTranslationHandling {
     #[default]
     Skip,
     Translate,
-    TranslateAndShow,
+    Ask,
 }
 
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
 struct Auto {
-    /// Automatically accept matches from existing translations, where there is only one possibility.
+    /// Automatically accept matches from existing translations, where there is only one possibility. Valid values are [skip, translate, ask].
     #[clap(short = 'u', long, default_value = "translate")]
     unique: AutoTranslationHandling,
-    /// Automatically accept matches from existing translations, where there are multiple possibilities. Whichone will be choosen is not specified.
+    /// Automatically accept matches from existing translations, where there are multiple possibilities. Whichone will be choosen is not specified. Valid values are [skip, translate, ask].
     #[clap(short, long)]
     multiple: AutoTranslationHandling,
-    /// Automatically accept ai translations.
+    /// Automatically accept ai translations. Valid values are [skip, translate, ask].
     #[clap(short, long)]
     ai: AutoTranslationHandling,
 }
@@ -89,35 +94,179 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn generate_translation(translator: &mut Translator, source: StringId) -> StringId {
-    let english = translator.resolve(source);
-    ai::english_to_german(english)
-        .inspect_err(|e| {
-            dbg!(e);
+#[derive(Debug)]
+struct LazyTranslation {
+    handle: Option<JoinHandle<Option<String>>>,
+    result: StringId,
+}
+
+impl LazyTranslation {
+    pub fn maybe_translate(source: &str, translation_needed: bool) -> Self {
+        if !translation_needed {
+            return Self::instant(empty_string_id());
+        }
+        let source = source.to_owned();
+        Self {
+            handle: Some(thread::spawn(move || {
+                ai::english_to_german(&source)
+                    .inspect_err(|e| _ = dbg!(e))
+                    .ok()
+            })),
+            result: empty_string_id(),
+        }
+    }
+
+    pub fn instant(translation: StringId) -> Self {
+        Self {
+            handle: None,
+            result: translation,
+        }
+    }
+
+    fn resolve(&mut self, translator: &mut Translator) -> StringId {
+        let Some(handle) = self.handle.take() else {
+            return self.result;
+        };
+        let result = handle.join().unwrap();
+        if let Some(result) = result {
+            self.result = translator.intern(result);
+        }
+        self.result
+    }
+
+    fn is_resolved_and_empty(&self) -> bool {
+        self.handle.is_none() && self.result == empty_string_id()
+    }
+}
+
+struct UndecidedTranslation {
+    full_id: Vec<(LanguageStr, StringId)>,
+    from: StringId,
+    is_german: bool,
+    to: LazyTranslation,
+}
+
+#[derive(Debug, Clone, Copy, strum::Display, PartialEq, Eq)]
+enum Decision {
+    Accept,
+    Yes,
+    Deny,
+    No,
+    Edit,
+    Split,
+    Context,
+    Help,
+}
+
+impl FromStr for Decision {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "a" => Self::Accept,
+            "y" => Self::Yes,
+            "d" => Self::Deny,
+            "n" => Self::No,
+            "e" => Self::Edit,
+            "s" => Self::Split,
+            "c" => Self::Context,
+            "h" | "help" | "?" => Self::Help,
+            _ => return Err(()),
         })
-        .map(|s| translator.intern(s.trim().into()))
-        .unwrap_or(empty_string_id())
+    }
+}
+
+impl UndecidedTranslation {
+    fn decide(&mut self, translator: &mut Translator) -> anyhow::Result<usize> {
+        let mut translated = 0;
+        let to_id = self.to.resolve(translator);
+        let from = translator.resolve(self.from);
+        let to = translator.resolve(to_id);
+        let count = self.full_id.len();
+        let multiline = from.len() > 80 || to.len() > 80;
+        let count_txt = if count > 1 {
+            count.to_string()
+        } else {
+            self.full_id[0].0.to_string()
+        };
+        if multiline {
+            println!("({count_txt}) '{from}'\n    => '{to}'");
+        } else {
+            println!("({count_txt}) '{from}' => '{to}'");
+        }
+        let decision = loop {
+            let result = inquire::CustomType::<Decision>::new(
+                "Add this translation? [y, n, a, d, e, s, c ?]",
+            )
+            .prompt()
+            .unwrap();
+            if result != Decision::Help || (count <= 1 && result == Decision::Split) {
+                break result;
+            }
+            println!("Use [y] to accept the current translation.");
+            println!("Use [n] to deny and skip the current translation.");
+            println!("Use [a] to accept all translations.");
+            println!("Use [d] to deny all translations.");
+            println!("Use [e] to edit the current translation.");
+            if count > 1 {
+                println!("Use [s] to seperate the {} translations.", count);
+            }
+            println!("Use [c] to show context with similar textes on the page/table/etc.");
+        };
+        match decision {
+            Decision::Accept => todo!(),
+            Decision::Yes => {
+                for (lang, id) in &self.full_id {
+                    translated += 1;
+                    translator.add_translation(*lang, *id, to_id)?;
+                }
+            }
+            Decision::Deny => todo!(),
+            Decision::No => {}
+            Decision::Edit => todo!(),
+            Decision::Help => unreachable!(),
+            Decision::Split => {
+                for id in &self.full_id {
+                    UndecidedTranslation {
+                        full_id: vec![*id],
+                        from: self.from,
+                        is_german: self.is_german,
+                        to: LazyTranslation::instant(to_id),
+                    }
+                    .decide(translator)?;
+                }
+            }
+            Decision::Context => todo!(),
+        }
+        Ok(translated)
+    }
 }
 
 fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error> {
+    let mut added_translations = 0;
     let mut skipped_translations = 0;
-    let mut made_translations = Vec::new();
+    let mut made_translations: Vec<UndecidedTranslation> = Vec::new();
     for t in translator.find_missing_translations() {
         let (source, target) =
             translator.get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), t.id)?;
         let options = translator.get_translation(t.language, source);
-        let (should_translate, recommended) = if options.len() == 0 {
-            (auto.ai, generate_translation(&mut translator, source))
+        let (should_translate, mut recommended) = if options.len() == 0 {
+            if is_german(t.language) {
+                (
+                    auto.ai,
+                    LazyTranslation::maybe_translate(
+                        translator.resolve(source),
+                        !made_translations.iter().any(|t| t.from == source),
+                    ),
+                )
+            } else {
+                (auto.ai, LazyTranslation::instant(source))
+            }
         } else if options.len() == 1 {
-            (auto.unique, options[0])
+            (auto.unique, LazyTranslation::instant(options[0]))
         } else {
-            (auto.multiple, options[0])
+            (auto.multiple, LazyTranslation::instant(options[0]))
         };
-
-        if recommended == empty_string_id() {
-            skipped_translations += 1;
-            continue;
-        }
 
         match should_translate {
             AutoTranslationHandling::Skip => {
@@ -125,10 +274,24 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
                 continue;
             }
             AutoTranslationHandling::Translate => {
+                added_translations += 1;
+                let recommended = recommended.resolve(&mut translator);
                 translator.add_translation(t.language, t.id, recommended)?;
             }
-            AutoTranslationHandling::TranslateAndShow => {
-                made_translations.push((t, source, recommended));
+            AutoTranslationHandling::Ask => {
+                if let Some(existing) = made_translations
+                    .iter()
+                    .position(|u| u.from == source && u.is_german == is_german(t.language))
+                {
+                    made_translations[existing].full_id.push((t.language, t.id));
+                } else {
+                    made_translations.push(UndecidedTranslation {
+                        full_id: vec![(t.language, t.id)],
+                        from: source,
+                        to: recommended,
+                        is_german: is_german(t.language),
+                    });
+                }
             }
         }
     }
@@ -137,18 +300,30 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
             "Could not auto translate {skipped_translations} translations. Use untranslated command to manually fill or accept more things automatically."
         );
     }
-    for (_, s, t) in made_translations.iter().copied() {
-        println!("'{}' => '{}'", translator.resolve(s), translator.resolve(t));
+    made_translations.sort_by_key(|t| t.from);
+    for mut undecided in made_translations {
+        added_translations += undecided.decide(&mut translator)?;
     }
-    if !made_translations.is_empty()
-        && inquire::Confirm::new("Are these translations acceptable?").prompt()?
-    {
-        for (m, _, t) in made_translations {
-            translator.add_translation(m.language, m.id, t)?;
-        }
-    }
+    // if !made_translations.is_empty()
+    //     && inquire::Select::new(
+    //         "Are these translations acceptable?",
+    //         vec!["yes", "no", "split"],
+    //     )
+    //     .prompt()?
+    //         == "yes"
+    // {
+    //     for (m, _, t) in made_translations {
+    //         added_translations += 1;
+    //         translator.add_translation(m.language, m.id, t)?;
+    //     }
+    // }
+    println!("Added {} translations.", added_translations);
     translator.save_files()?;
     Ok(())
+}
+
+fn is_german(language: LanguageStr) -> bool {
+    language.starts_with("de")
 }
 
 fn run_unify(translator: Translator, Unify: Unify) -> Result<(), anyhow::Error> {
