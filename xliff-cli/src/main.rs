@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
+use inquire::ui::{RenderConfig, StyleSheet};
 use xliff_translation::{LanguageStr, StringId, Translator, empty_string_id};
 
 mod ai;
@@ -177,24 +178,34 @@ impl FromStr for Decision {
 }
 
 impl UndecidedTranslation {
-    fn decide(&mut self, translator: &mut Translator) -> anyhow::Result<usize> {
+    fn decide<'a>(
+        &mut self,
+        translator: &'a mut Translator,
+        decision: &mut Decision,
+    ) -> anyhow::Result<usize> {
         let mut translated = 0;
+        let is_silent = *decision == Decision::Accept || *decision == Decision::Deny;
         let to_id = self.to.resolve(translator);
         let from = translator.resolve(self.from);
         let to = translator.resolve(to_id);
         let count = self.full_id.len();
-        let multiline = from.len() > 80 || to.len() > 80;
-        let count_txt = if count > 1 {
-            count.to_string()
-        } else {
-            self.full_id[0].0.to_string()
-        };
-        if multiline {
-            println!("({count_txt}) '{from}'\n    => '{to}'");
-        } else {
-            println!("({count_txt}) '{from}' => '{to}'");
+        if !is_silent {
+            let multiline = from.len() > 80 || to.len() > 80;
+            let count_txt = if count > 1 {
+                count.to_string()
+            } else {
+                self.full_id[0].0.to_string()
+            };
+            if multiline {
+                println!("({count_txt}) '{from}'\n    => '{to}'");
+            } else {
+                println!("({count_txt}) '{from}' => '{to}'");
+            }
         }
-        let decision = loop {
+        let mut cur_decision = loop {
+            if *decision == Decision::Accept || *decision == Decision::Deny {
+                break *decision;
+            }
             let result = inquire::CustomType::<Decision>::new(
                 "Add this translation? [y, n, a, d, e, s, c ?]",
             )
@@ -213,17 +224,70 @@ impl UndecidedTranslation {
             }
             println!("Use [c] to show context with similar textes on the page/table/etc.");
         };
-        match decision {
-            Decision::Accept => todo!(),
+        match cur_decision {
+            Decision::Accept => {
+                *decision = cur_decision;
+                for (lang, id) in &self.full_id {
+                    translated += 1;
+                    translator.add_translation(*lang, *id, to_id)?;
+                }
+            }
             Decision::Yes => {
                 for (lang, id) in &self.full_id {
                     translated += 1;
                     translator.add_translation(*lang, *id, to_id)?;
                 }
             }
-            Decision::Deny => todo!(),
+            Decision::Deny => {
+                *decision = cur_decision;
+            }
             Decision::No => {}
-            Decision::Edit => todo!(),
+            Decision::Edit => {
+                println!(
+                    "Targeting {}:",
+                    self.full_id
+                        .iter()
+                        .map(|f| format!("{}, ", f.0))
+                        .collect::<String>()
+                );
+                loop {
+                    let to = translator.resolve(to_id);
+                    let Some(to) = inquire::Text::new("Enter translation:")
+                        .with_initial_value(to)
+                        .with_render_config(RenderConfig::default_colored().with_text_input(
+                            StyleSheet::default().with_fg(inquire::ui::Color::DarkGreen),
+                        ))
+                        .prompt_skippable()?
+                    else {
+                        return self.decide(translator, decision);
+                    };
+                    let cur_decision = loop {
+                        let result =
+                            inquire::CustomType::<Decision>::new("Add this translation? [y, n, e]")
+                                .prompt()
+                                .unwrap();
+                        if [Decision::Yes, Decision::No, Decision::Edit].contains(&result) {
+                            break result;
+                        }
+                        println!("Use [y] to accept the current translation.");
+                        println!("Use [n] to deny and skip the current translation.");
+                        println!("Use [e] to edit the current translation.");
+                    };
+                    let to_id = translator.intern(to);
+                    match cur_decision {
+                        Decision::Yes => {
+                            for (lang, id) in &self.full_id {
+                                translated += 1;
+                                translator.add_translation(*lang, *id, to_id)?;
+                            }
+                        }
+                        Decision::No => {}
+                        Decision::Edit => continue,
+                        _ => unreachable!(),
+                    }
+                    break;
+                }
+            }
             Decision::Help => unreachable!(),
             Decision::Split => {
                 for id in &self.full_id {
@@ -233,7 +297,7 @@ impl UndecidedTranslation {
                         is_german: self.is_german,
                         to: LazyTranslation::instant(to_id),
                     }
-                    .decide(translator)?;
+                    .decide(translator, &mut cur_decision)?;
                 }
             }
             Decision::Context => todo!(),
@@ -301,8 +365,9 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
         );
     }
     made_translations.sort_by_key(|t| t.from);
+    let mut decision = Decision::No;
     for mut undecided in made_translations {
-        added_translations += undecided.decide(&mut translator)?;
+        added_translations += undecided.decide(&mut translator, &mut decision)?;
     }
     // if !made_translations.is_empty()
     //     && inquire::Select::new(
