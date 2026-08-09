@@ -300,7 +300,25 @@ impl UndecidedTranslation {
                     .decide(translator, &mut cur_decision)?;
                 }
             }
-            Decision::Context => todo!(),
+            Decision::Context => {
+                let related = translator.find_related(self.full_id[0].0, self.full_id[0].1);
+                if related.is_empty() {
+                    println!("Could not provide any context.");
+                } else {
+                    println!(
+                        "The following {} texts are probably close by in the ui:",
+                        related.len()
+                    );
+                    for r in related {
+                        println!(
+                            "{} => {}",
+                            translator.resolve(r.from),
+                            translator.resolve(r.to)
+                        );
+                    }
+                }
+                return self.decide(translator, decision);
+            }
         }
         Ok(translated)
     }

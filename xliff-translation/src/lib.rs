@@ -41,13 +41,13 @@ impl LanguageStr {
 
 pub type Result<T> = std::result::Result<T, error::Error>;
 
-#[derive(Debug)]
-pub struct TranslationUnit {
-    target_lang: LanguageStr,
-    id: u32,
-    source: String,
-    target: Option<String>,
-}
+// #[derive(Debug)]
+// pub struct TranslationUnit {
+//     target_lang: LanguageStr,
+//     id: u32,
+//     source: String,
+//     target: Option<String>,
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MissingTranslation {
@@ -65,6 +65,21 @@ impl MissingTranslation {
 pub struct FastIndex {
     file_index: usize,
     trans_unit_index: usize,
+}
+
+pub struct TranslationEntry {
+    pub id: StringId,
+    pub from: StringId,
+    pub to: StringId,
+}
+impl TranslationEntry {
+    fn from_tuple(id: Spur, (from, to): (Spur, Option<Spur>)) -> TranslationEntry {
+        Self {
+            id,
+            from,
+            to: to.unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -286,6 +301,34 @@ impl TranslationFile {
             text: translation_str,
         });
     }
+
+    fn find_related(&self, entry: Spur, string_interner: &Rodeo) -> Vec<TranslationEntry> {
+        let mut result = Vec::new();
+        let base_type = string_interner
+            .resolve(&entry)
+            .split('-')
+            .next()
+            .unwrap()
+            .trim();
+        let ids = get_all_ids_starting_with(base_type, string_interner);
+        for id in ids {
+            let Some(tuple) = self.ids_to_source_and_translation.get(&id).copied() else {
+                continue;
+            };
+            if tuple.1.is_some() {
+                result.push(TranslationEntry::from_tuple(id, tuple));
+            }
+        }
+        result
+    }
+}
+
+fn get_all_ids_starting_with(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {
+    string_interner
+        .iter()
+        .filter(|(_, s)| s.starts_with(pat))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -451,5 +494,9 @@ impl Translator {
             .keys()
             .copied()
             .collect()
+    }
+
+    pub fn find_related(&self, language: LanguageStr, entry: Spur) -> Vec<TranslationEntry> {
+        self.languages[&language].find_related(entry, &self.string_interner)
     }
 }
