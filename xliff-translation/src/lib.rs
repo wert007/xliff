@@ -8,6 +8,7 @@ use std::{
 };
 
 use lasso::{Key, Rodeo, Spur};
+use regex::{Regex, RegexBuilder};
 use xliff_raw::version_1_2::relaxed::{
     BodyElement, Group, GroupElement, Source, Target, TransUnit, Xliff,
 };
@@ -321,6 +322,20 @@ impl TranslationFile {
         }
         result
     }
+
+    fn find_in_translations(&self, find: &Regex, string_interner: &Rodeo) -> Vec<TranslationEntry> {
+        self.ids_to_source_and_translation
+            .iter()
+            .filter(|(_, (f, t))| {
+                find.is_match(string_interner.resolve(f))
+                    || t.is_some_and(|t| find.is_match(string_interner.resolve(&t)))
+            })
+            .filter_map(|(k, (f, t))| {
+                let t = (*t)?;
+                Some(TranslationEntry::from_tuple(*k, (*f, Some(t))))
+            })
+            .collect()
+    }
 }
 
 fn get_all_ids_starting_with(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {
@@ -498,5 +513,28 @@ impl Translator {
 
     pub fn find_related(&self, language: LanguageStr, entry: Spur) -> Vec<TranslationEntry> {
         self.languages[&language].find_related(entry, &self.string_interner)
+    }
+
+    pub fn find_in_translations(
+        &self,
+        find: &str,
+        language_hint: Option<LanguageStr>,
+    ) -> Vec<TranslationEntry> {
+        let find = RegexBuilder::new(&find)
+            .case_insensitive(true)
+            .build()
+            .unwrap();
+
+        let mut result: Vec<TranslationEntry> = match language_hint {
+            Some(lang) => self.languages[&lang].find_in_translations(&find, &self.string_interner),
+            None => self
+                .languages
+                .values()
+                .flat_map(|t| t.find_in_translations(&find, &self.string_interner))
+                .collect(),
+        };
+        result.sort_by_key(|r| (r.from, r.to));
+        result.dedup_by_key(|f| (f.from, f.to));
+        result
     }
 }

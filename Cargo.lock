@@ -1342,6 +1342,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "owo-colors"
+version = "4.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2277,6 +2283,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
+name = "unicase"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2727,10 +2739,12 @@ dependencies = [
  "glob",
  "indicatif 0.17.11",
  "inquire",
+ "owo-colors",
  "regex",
  "rust-bert",
  "strum",
  "tinystr",
+ "unicase",
  "xliff-translation",
 ]
 
@@ -2753,6 +2767,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tinystr",
+ "unicase",
  "xliff-raw",
 ]
 

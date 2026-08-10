@@ -1,5 +1,3 @@
-use std::{path::PathBuf, sync::Arc};
-
 use anyhow::anyhow;
 use rust_bert::pipelines::translation::{Language, TranslationModelBuilder};
 
@@ -12,6 +10,8 @@ pub fn english_to_german(english: &str) -> anyhow::Result<String> {
     let t = m
         .translate(&[english], Language::English, Language::German)?
         .pop()
-        .ok_or(anyhow!("No translation was generated for {english}"))?;
+        .ok_or(anyhow!("No translation was generated for {english}"))?
+        .trim()
+        .into();
     Ok(t)
 }
