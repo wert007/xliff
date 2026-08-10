@@ -10,7 +10,7 @@ use std::{
 use lasso::{Key, Rodeo, Spur};
 use regex::{Regex, RegexBuilder};
 use xliff_raw::version_1_2::relaxed::{
-    BodyElement, Group, GroupElement, Source, Target, TransUnit, Xliff,
+    BodyElement, Group, GroupElement, Note, Source, Target, TransUnit, Xliff,
 };
 
 pub type StringId = lasso::Spur;
@@ -200,6 +200,7 @@ impl TranslationFile {
         translation: Spur,
         translation_str: String,
         interner: &mut Rodeo,
+        note: Vec<Note>,
     ) {
         if let Some(index) = self.ids.get(&id) {
             self.change_translation(id, *index, translation, translation_str);
@@ -211,14 +212,14 @@ impl TranslationFile {
             let source = interner.resolve(&source).into();
             group.elements.push(GroupElement::TransUnit(TransUnit {
                 id,
-                size_unit: None,
-                translate: None,
-                xml_space: xliff_raw::version_1_2::relaxed::WhitespacePreservation::Default,
+                size_unit: Some("char".into()),
+                translate: Some(xliff_raw::version_1_2::relaxed::XliffBoolean::Yes),
+                xml_space: xliff_raw::version_1_2::relaxed::WhitespacePreservation::Preserve,
                 source: Source { text: source },
                 target: Some(Target {
                     text: translation_str,
                 }),
-                note: Vec::new(),
+                note,
             }));
         }
     }
@@ -337,6 +338,17 @@ impl TranslationFile {
             })
             .collect()
     }
+
+    fn get_notes(&self, id: Spur) -> Vec<Note> {
+        let index = self.ids[&id];
+        let BodyElement::Group(group) = &self.raw.files[index.file_index].body.elements[0] else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        let GroupElement::TransUnit(trans_unit) = &group.elements[index.trans_unit_index] else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        trans_unit.note.clone()
+    }
 }
 
 fn get_all_ids_starting_with(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {
@@ -427,6 +439,7 @@ impl Translator {
         id: Spur,
         translation: Spur,
     ) -> Result<()> {
+        let notes = self.base.get_notes(id);
         let translation_str = self.resolve(translation).to_owned();
         let (s, _) = self.base.ids_to_source_and_translation.get(&id).unwrap();
         self.languages
@@ -438,6 +451,7 @@ impl Translator {
                 translation,
                 translation_str,
                 &mut self.string_interner,
+                notes,
             );
         Ok(())
     }
