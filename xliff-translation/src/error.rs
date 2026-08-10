@@ -18,6 +18,8 @@ pub enum Error {
     IoError(#[from] std::io::Error),
     #[error("Parsing error: {0}")]
     ParsingError(#[from] quick_xml::de::DeError),
+    #[error("Parsing error in file {0}: {1}")]
+    ParsingErrorInFile(PathBuf, quick_xml::DeError),
     #[error("Serializing error: {0}")]
     SerializingError(#[from] quick_xml::se::SeError),
     #[error("Language {0} does not exist right now.")]

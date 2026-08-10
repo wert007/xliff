@@ -137,7 +137,8 @@ fn for_each_trans_unit_in_group(
 impl TranslationFile {
     fn new(file: &PathBuf, is_base: bool, string_interner: &mut Rodeo) -> Result<Self> {
         let raw: xliff_raw::version_1_2::relaxed::Xliff =
-            quick_xml::de::from_reader(BufReader::new(File::open(file)?))?;
+            quick_xml::de::from_reader(BufReader::new(File::open(file)?))
+                .map_err(|e| Error::ParsingErrorInFile(file.clone(), e))?;
         let mut ids = HashMap::new();
         let mut translated_ids = HashSet::new();
         let mut ids_with_same_translation = HashSet::new();
