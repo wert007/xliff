@@ -416,45 +416,7 @@ impl UndecidedTranslation {
                     );
                     let count = related.len();
                     for r in related {
-                        let rfrom = translator.resolve(r.from);
-                        let rto = translator.resolve(r.to);
-                        if let Some(w) = context.width
-                            && (3 + rfrom.len() + 4 + rto.len()) >= w
-                        {
-                            let mut i = 0;
-                            let mut j = 0;
-                            while i < rfrom.len() {
-                                if i == 0 {
-                                    print!(" - ");
-                                } else {
-                                    print!("   ");
-                                }
-                                let end = (rfrom.len() - i).min(w - 3);
-                                print!("{}", &rfrom[i..][..end]);
-                                i += end;
-                                if end < w - 3 - 4 - 5 {
-                                    println!(" => {}", &rto[..(w - 3 - 4 - 5) - end]);
-                                    j = (w - 3 - 4 - 5) - end;
-                                } else {
-                                    println!();
-                                }
-                            }
-                            while j < rto.len() {
-                                let cut = if j == 0 {
-                                    print!("   => ");
-                                    6
-                                } else {
-                                    print!("   ");
-                                    3
-                                };
-                                let end = (rto.len() - j).min(w - cut);
-                                print!("{}", &rto[j..][..end]);
-                                j += end;
-                            }
-                            println!();
-                        } else {
-                            println!(" - {} => {}", rfrom, rto);
-                        }
+                        print_translation_entry_as_bullet_point(r, translator);
                     }
                     if count > 20 {
                         println!("The previous {count} texts are probably close by in the ui.",);
@@ -469,6 +431,25 @@ impl UndecidedTranslation {
             }
         }
         Ok(translated)
+    }
+}
+
+fn print_translation_entry_as_bullet_point(
+    r: xliff_translation::TranslationEntry,
+    translator: &mut Translator,
+) {
+    let rfrom = translator.resolve(r.from);
+    let rto = translator.resolve(r.to);
+    let text = [rfrom, " => ", rto].concat();
+    let text = textwrap::wrap(
+        &text,
+        textwrap::Options::with_termwidth()
+            .initial_indent(" - ")
+            .subsequent_indent("   ")
+            .break_words(false),
+    );
+    for text in text {
+        println!("{text}");
     }
 }
 
