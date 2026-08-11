@@ -534,11 +534,8 @@ impl Translator {
         &self,
         find: &str,
         language_hint: Option<LanguageStr>,
-    ) -> Vec<TranslationEntry> {
-        let find = RegexBuilder::new(&find)
-            .case_insensitive(true)
-            .build()
-            .unwrap();
+    ) -> std::result::Result<Vec<TranslationEntry>, regex::Error> {
+        let find = RegexBuilder::new(&find).case_insensitive(true).build()?;
 
         let mut result: Vec<TranslationEntry> = match language_hint {
             Some(lang) => self.languages[&lang].find_in_translations(&find, &self.string_interner),
@@ -550,6 +547,6 @@ impl Translator {
         };
         result.sort_by_key(|r| (r.from, r.to));
         result.dedup_by_key(|f| (f.from, f.to));
-        result
+        Ok(result)
     }
 }

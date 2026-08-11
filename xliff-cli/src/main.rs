@@ -337,7 +337,9 @@ impl UndecidedTranslation {
                 }
             }
             Decision::FindSource => {
-                let related = translator.find_in_translations(from, language_hint);
+                let related = translator
+                    .find_in_translations(&regex::escape(from), language_hint)
+                    .unwrap();
                 if related.is_empty() {
                     println!("No matches found for {from}.");
                 } else {
@@ -356,7 +358,13 @@ impl UndecidedTranslation {
                 return self.decide(translator, decision);
             }
             Decision::Find(find) => {
-                let related = translator.find_in_translations(&find, language_hint);
+                let related = match translator.find_in_translations(&find, language_hint) {
+                    Ok(it) => it,
+                    Err(err) => {
+                        eprintln!("Failed parsing search term: {err}");
+                        return self.decide(translator, decision);
+                    }
+                };
                 if related.is_empty() {
                     println!("No matches found for {find}.");
                 } else {
