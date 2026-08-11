@@ -307,19 +307,47 @@ impl TranslationFile {
 
     fn find_related(&self, entry: Spur, string_interner: &Rodeo) -> Vec<TranslationEntry> {
         let mut result = Vec::new();
-        let base_type = string_interner
-            .resolve(&entry)
-            .split('-')
-            .next()
-            .unwrap()
-            .trim();
-        let ids = get_all_ids_starting_with(base_type, string_interner);
-        for id in ids {
-            let Some(tuple) = self.ids_to_source_and_translation.get(&id).copied() else {
-                continue;
+        let mut related_actions_or_fields = string_interner.resolve(&entry);
+        let mut related_page_codeunit_table = related_actions_or_fields;
+        related_actions_or_fields = related_actions_or_fields.split_once('-').unwrap().1.trim();
+        while related_actions_or_fields != "" {
+            let ids = get_all_ids_containing(related_actions_or_fields, string_interner);
+            result.extend(
+                ids.into_iter()
+                    .filter_map(|id| {
+                        Some((id, self.ids_to_source_and_translation.get(&id).copied()?))
+                    })
+                    .filter(|(_, (_, t))| t.is_some())
+                    .map(|(id, tuple)| TranslationEntry::from_tuple(id, tuple)),
+            );
+            if result.len() > 10 {
+                break;
+            }
+            let Some(pos) = related_actions_or_fields.rfind('-') else {
+                break;
             };
-            if tuple.1.is_some() {
-                result.push(TranslationEntry::from_tuple(id, tuple));
+            related_actions_or_fields = related_actions_or_fields[..pos].trim();
+        }
+        let offset = result.len();
+        while related_page_codeunit_table != "" {
+            let Some(pos) = related_page_codeunit_table.rfind('-') else {
+                break;
+            };
+            related_page_codeunit_table = related_page_codeunit_table[..pos].trim();
+            let ids = get_all_ids_containing(related_page_codeunit_table, string_interner);
+            let mut found = ids
+                .into_iter()
+                .filter_map(|id| Some((id, self.ids_to_source_and_translation.get(&id).copied()?)))
+                .filter(|(_, (_, t))| t.is_some())
+                .map(|(id, tuple)| TranslationEntry::from_tuple(id, tuple))
+                .collect::<Vec<_>>();
+            if result.len() == 0 || found.len() < 10 {
+                result.append(&mut found);
+            } else {
+                break;
+            }
+            if result.len() > 10 + offset {
+                break;
             }
         }
         result
@@ -351,10 +379,10 @@ impl TranslationFile {
     }
 }
 
-fn get_all_ids_starting_with(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {
+fn get_all_ids_containing(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {
     string_interner
         .iter()
-        .filter(|(_, s)| s.starts_with(pat))
+        .filter(|(_, s)| s.contains(pat))
         .map(|(i, _)| i)
         .collect()
 }

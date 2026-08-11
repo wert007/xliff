@@ -4,7 +4,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use anyhow::{Context, bail};
+use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
 use inquire::ui::{RenderConfig, StyleSheet};
 use regex::RegexBuilder;
@@ -163,6 +163,16 @@ fn highlight<'a>(base: &'a str, highlight: &str) -> Cow<'a, str> {
     base2.into()
 }
 
+struct Context {
+    width: Option<usize>,
+}
+impl Context {
+    fn new() -> Self {
+        let width = terminal_size::terminal_size().map(|(w, h)| w.0 as usize);
+        Self { width }
+    }
+}
+
 struct UndecidedTranslation {
     full_id: Vec<(LanguageStr, StringId)>,
     from: StringId,
@@ -214,6 +224,7 @@ impl UndecidedTranslation {
         &mut self,
         translator: &'a mut Translator,
         decision: &mut Decision,
+        context: &Context,
     ) -> anyhow::Result<usize> {
         let mut translated = 0;
         let language_hint = (self.full_id.len() == 1).then(|| self.full_id[0].0);
@@ -223,11 +234,15 @@ impl UndecidedTranslation {
         let to = translator.resolve(to_id);
         let count = self.full_id.len();
         if !is_silent {
-            let multiline = from.len() > 80 || to.len() > 80;
             let count_txt = if count > 1 {
                 count.to_string()
             } else {
                 self.full_id[0].0.to_string()
+            };
+            let multiline = if let Some(w) = context.width {
+                count_txt.len() + 3 + from.len() + 2 + 4 + to.len() + 2 >= w
+            } else {
+                from.len() > 80 || to.len() > 80
             };
             if multiline {
                 println!("({count_txt}) '{from}'\n    => '{to}'");
@@ -287,7 +302,11 @@ impl UndecidedTranslation {
                         .collect::<String>()
                 );
                 loop {
-                    let to = translator.resolve(to_id);
+                    let to = if to_id == empty_string_id() {
+                        translator.resolve(self.from)
+                    } else {
+                        translator.resolve(to_id)
+                    };
                     let Some(to) = inquire::Text::new("Enter translation:")
                         .with_initial_value(to)
                         .with_render_config(RenderConfig::default_colored().with_text_input(
@@ -295,7 +314,7 @@ impl UndecidedTranslation {
                         ))
                         .prompt_skippable()?
                     else {
-                        return self.decide(translator, decision);
+                        return self.decide(translator, decision, context);
                     };
                     let cur_decision = loop {
                         let result =
@@ -333,7 +352,7 @@ impl UndecidedTranslation {
                         is_german: self.is_german,
                         to: LazyTranslation::instant(to_id),
                     }
-                    .decide(translator, &mut cur_decision)?;
+                    .decide(translator, &mut cur_decision, context)?;
                 }
             }
             Decision::FindSource => {
@@ -348,21 +367,19 @@ impl UndecidedTranslation {
                         related.len()
                     );
                     for r in related {
-                        println!(
-                            "{} => {}",
-                            highlight(translator.resolve(r.from), &from),
-                            highlight(translator.resolve(r.to), &from),
-                        );
+                        let rfrom = translator.resolve(r.from);
+                        let rto = translator.resolve(r.to);
+                        println!("{} => {}", highlight(rfrom, &from), highlight(rto, &from),);
                     }
                 }
-                return self.decide(translator, decision);
+                return self.decide(translator, decision, context);
             }
             Decision::Find(find) => {
                 let related = match translator.find_in_translations(&find, language_hint) {
                     Ok(it) => it,
                     Err(err) => {
                         eprintln!("Failed parsing search term: {err}");
-                        return self.decide(translator, decision);
+                        return self.decide(translator, decision, context);
                     }
                 };
                 if related.is_empty() {
@@ -380,10 +397,16 @@ impl UndecidedTranslation {
                         );
                     }
                 }
-                return self.decide(translator, decision);
+                return self.decide(translator, decision, context);
             }
             Decision::Context => {
-                let related = translator.find_related(self.full_id[0].0, self.full_id[0].1);
+                let mut related: Vec<_> = self
+                    .full_id
+                    .iter()
+                    .flat_map(|(lang, id)| translator.find_related(*lang, *id))
+                    .collect();
+                related.sort_by_key(|r| r.from);
+                related.dedup_by_key(|r| (r.from, r.to));
                 if related.is_empty() {
                     println!("Could not provide any context.");
                 } else {
@@ -391,15 +414,58 @@ impl UndecidedTranslation {
                         "The following {} texts are probably close by in the ui:",
                         related.len()
                     );
+                    let count = related.len();
                     for r in related {
-                        println!(
-                            "{} => {}",
-                            translator.resolve(r.from),
-                            translator.resolve(r.to)
-                        );
+                        let rfrom = translator.resolve(r.from);
+                        let rto = translator.resolve(r.to);
+                        if let Some(w) = context.width
+                            && (3 + rfrom.len() + 4 + rto.len()) >= w
+                        {
+                            let mut i = 0;
+                            let mut j = 0;
+                            while i < rfrom.len() {
+                                if i == 0 {
+                                    print!(" - ");
+                                } else {
+                                    print!("   ");
+                                }
+                                let end = (rfrom.len() - i).min(w - 3);
+                                print!("{}", &rfrom[i..][..end]);
+                                i += end;
+                                if end < w - 3 - 4 - 5 {
+                                    println!(" => {}", &rto[..(w - 3 - 4 - 5) - end]);
+                                    j = (w - 3 - 4 - 5) - end;
+                                } else {
+                                    println!();
+                                }
+                            }
+                            while j < rto.len() {
+                                let cut = if j == 0 {
+                                    print!("   => ");
+                                    6
+                                } else {
+                                    print!("   ");
+                                    3
+                                };
+                                let end = (rto.len() - j).min(w - cut);
+                                print!("{}", &rto[j..][..end]);
+                                j += end;
+                            }
+                            println!();
+                        } else {
+                            println!(" - {} => {}", rfrom, rto);
+                        }
+                    }
+                    if count > 20 {
+                        println!("The previous {count} texts are probably close by in the ui.",);
+                        if self.full_id.len() > 1 {
+                            println!(
+                                "Seems like you found a lot of related entries, [s]plitting may help to find more relevant entries to each single missing translation."
+                            )
+                        }
                     }
                 }
-                return self.decide(translator, decision);
+                return self.decide(translator, decision, context);
             }
         }
         Ok(translated)
@@ -481,8 +547,9 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
     }
     made_translations.sort_by_key(|t| t.from);
     let mut decision = Decision::No;
+    let context = Context::new();
     for mut undecided in made_translations {
-        added_translations += undecided.decide(&mut translator, &mut decision)?;
+        added_translations += undecided.decide(&mut translator, &mut decision, &context)?;
     }
     println!("Added {} translations.", added_translations);
     translator.save_files()?;
