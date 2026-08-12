@@ -4,7 +4,7 @@ use std::{
     fmt::Display,
     fs::File,
     io::{BufReader, BufWriter},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use lasso::{Key, Rodeo, Spur};
@@ -576,5 +576,13 @@ impl Translator {
         result.sort_by_key(|r| (r.from, r.to));
         result.dedup_by_key(|f| (f.from, f.to));
         Ok(result)
+    }
+
+    pub fn base_file(&self) -> &Path {
+        &self.base.path
+    }
+
+    pub fn loaded_files(&self) -> Vec<PathBuf> {
+        self.languages.values().map(|v| v.path.clone()).collect()
     }
 }
