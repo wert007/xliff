@@ -130,7 +130,12 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
     let mut skipped_translations = 0;
     let mut made_translations: Vec<UndecidedTranslation> = Vec::new();
     let german_languages: Vec<_> = translator.languages().filter(|l| is_german(*l)).collect();
-    for t in translator.find_missing_translations() {
+    let missing_translations = translator.find_missing_translations();
+    println!(
+        "There are {} translations missing.",
+        missing_translations.len()
+    );
+    for t in missing_translations {
         let (source, _) =
             translator.get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), t.id)?;
         let options = translator.get_translation(t.language, source);

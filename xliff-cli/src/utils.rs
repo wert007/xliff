@@ -68,6 +68,9 @@ impl LazyTranslation {
 }
 
 pub fn highlight<'a>(base: &'a str, highlight: &str) -> Cow<'a, str> {
+    if highlight == "" {
+        return base.into();
+    }
     let r = RegexBuilder::new(&highlight)
         .case_insensitive(true)
         .build()

@@ -165,7 +165,7 @@ impl UndecidedTranslation {
                         return self.decide(translator, decision, context);
                     }
                 };
-                found_related(translator, from, related);
+                found_related(translator, &find, related);
                 return self.decide(translator, decision, context);
             }
             Decision::Context => {
@@ -305,7 +305,7 @@ fn found_context(
         );
         let count = related.len();
         for r in related {
-            print_translation_entry_as_bullet_point(r, translator);
+            print_translation_entry_as_bullet_point(r, translator, "");
         }
         if count > 20 {
             println!("The previous {count} texts are probably close by in the ui.",);
@@ -331,9 +331,7 @@ fn found_related(
             related.len()
         );
         for r in related {
-            let rfrom = translator.resolve(r.from);
-            let rto = translator.resolve(r.to);
-            println!("{} => {}", highlight(rfrom, &from), highlight(rto, &from),);
+            print_translation_entry_as_bullet_point(r, translator, from);
         }
     }
 }
@@ -392,14 +390,15 @@ fn ask_for_decision(
 
 fn print_translation_entry_as_bullet_point(
     r: xliff_translation::TranslationEntry,
-    translator: &mut Translator,
+    translator: &Translator,
+    mark: &str,
 ) {
     let rfrom = translator.resolve(r.from);
     let rto = translator.resolve(r.to);
     let text = if rto == "" {
         [
             "'",
-            rfrom,
+            &highlight(rfrom, mark),
             "' => ",
             "\u{1b}[0;31m",
             "No translation available",
@@ -407,7 +406,14 @@ fn print_translation_entry_as_bullet_point(
         ]
         .concat()
     } else {
-        ["'", rfrom, "' => '", rto, "'"].concat()
+        [
+            "'",
+            &highlight(rfrom, mark),
+            "' => '",
+            &highlight(rto, mark),
+            "'",
+        ]
+        .concat()
     };
     let text = textwrap::wrap(
         &text,
