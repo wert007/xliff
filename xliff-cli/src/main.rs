@@ -1,8 +1,6 @@
-use std::collections::HashSet;
-
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
-use xliff_translation::{LanguageStr, StringId, Translator};
+use xliff_translation::{LanguageStr, Translator};
 
 use crate::{
     interactive::{Decision, UndecidedTranslation},
@@ -223,6 +221,12 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
     let context = Context::new();
     for mut undecided in made_translations {
         added_translations += undecided.decide(&mut translator, &mut decision, &context)?;
+        if decision == Decision::HardExit {
+            println!(
+                "\u{1b}[0;31mProgram was stopped. Cancelling execution, no translation was saved.\u{1b}[0m",
+            );
+            return Ok(());
+        }
     }
     println!("Added {} translations.", added_translations);
     translator.save_files()?;

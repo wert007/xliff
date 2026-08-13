@@ -25,6 +25,7 @@ pub enum Decision {
     FindSource,
     Find(String),
     Help,
+    HardExit,
 }
 
 impl std::str::FromStr for Decision {
@@ -180,6 +181,10 @@ impl UndecidedTranslation {
                 let entry_count = self.full_id.len();
                 found_context(translator, related, entry_count);
                 return self.decide(translator, decision, context);
+            }
+            Decision::HardExit => {
+                *decision = cur_decision;
+                return Ok(0);
             }
         }
         Ok(translated)
@@ -359,11 +364,12 @@ fn ask_for_decision(
             if *decision == Decision::Accept || *decision == Decision::Deny {
                 break decision.clone();
             }
-            let result = inquire::CustomType::<Decision>::new(
+            let Ok(result) = inquire::CustomType::<Decision>::new(
                 "Add this translation? [y, n, a, d, e, s, c, f, ?]",
             )
-            .prompt()
-            .unwrap();
+            .prompt() else {
+                break Decision::HardExit;
+            };
             if result != Decision::Help || (count <= 1 && result == Decision::Split) {
                 break result;
             }
