@@ -96,8 +96,7 @@ pub struct TranslationFile {
 
 fn for_each_trans_unit(raw: &Xliff, mut cb: impl FnMut(&TransUnit, usize, usize)) {
     let mut trans_unit_index;
-    let mut file_index = 0;
-    for file in &raw.files {
+    for (file_index, file) in raw.files.iter().enumerate() {
         trans_unit_index = 0;
         for element in &file.body.elements {
             match element {
@@ -110,7 +109,6 @@ fn for_each_trans_unit(raw: &Xliff, mut cb: impl FnMut(&TransUnit, usize, usize)
                 }
             }
         }
-        file_index += 1;
     }
 }
 
@@ -310,7 +308,7 @@ impl TranslationFile {
         let mut related_actions_or_fields = string_interner.resolve(&entry);
         let mut related_page_codeunit_table = related_actions_or_fields;
         related_actions_or_fields = related_actions_or_fields.split_once('-').unwrap().1.trim();
-        while related_actions_or_fields != "" {
+        while !related_actions_or_fields.is_empty() {
             let ids = get_all_ids_containing(related_actions_or_fields, string_interner);
             result.extend(
                 ids.into_iter()
@@ -329,7 +327,7 @@ impl TranslationFile {
             related_actions_or_fields = related_actions_or_fields[..pos].trim();
         }
         let offset = result.len();
-        while related_page_codeunit_table != "" {
+        while !related_page_codeunit_table.is_empty() {
             let Some(pos) = related_page_codeunit_table.rfind('-') else {
                 break;
             };
@@ -341,7 +339,7 @@ impl TranslationFile {
                 .filter(|(_, (_, t))| t.is_some())
                 .map(|(id, tuple)| TranslationEntry::from_tuple(id, tuple))
                 .collect::<Vec<_>>();
-            if result.len() == 0 || found.len() < 10 {
+            if result.is_empty() || found.len() < 10 {
                 result.append(&mut found);
             } else {
                 break;
@@ -563,7 +561,7 @@ impl Translator {
         find: &str,
         language_hint: Option<LanguageStr>,
     ) -> std::result::Result<Vec<TranslationEntry>, regex::Error> {
-        let find = RegexBuilder::new(&find).case_insensitive(true).build()?;
+        let find = RegexBuilder::new(find).case_insensitive(true).build()?;
 
         let mut result: Vec<TranslationEntry> = match language_hint {
             Some(lang) => self.languages[&lang].find_in_translations(&find, &self.string_interner),

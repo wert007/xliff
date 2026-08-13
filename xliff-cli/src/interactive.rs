@@ -54,9 +54,10 @@ impl std::str::FromStr for Decision {
 }
 
 impl UndecidedTranslation {
-    pub fn decide<'a>(
+    #[allow(clippy::only_used_in_recursion)]
+    pub fn decide(
         &mut self,
-        translator: &'a mut Translator,
+        translator: &mut Translator,
         decision: &mut Decision,
         context: &Context,
     ) -> anyhow::Result<usize> {
@@ -103,7 +104,7 @@ impl UndecidedTranslation {
                 let selected = if to_id.len() > 1 {
                     todo!()
                 } else {
-                    to_id.get(0).copied().unwrap_or(empty_string_id())
+                    to_id.first().copied().unwrap_or(empty_string_id())
                 };
                 loop {
                     let to = if selected == empty_string_id() {
@@ -146,7 +147,7 @@ impl UndecidedTranslation {
                         full_id: vec![*id],
                         from: self.from,
                         is_german: self.is_german,
-                        to: LazyTranslation::multiple(to_id.into()),
+                        to: LazyTranslation::multiple(to_id),
                     }
                     .decide(translator, &mut cur_decision, context)?;
                 }
@@ -213,8 +214,7 @@ fn ask_user_for_translation(
         let options = to_id.iter().map(|t| translator.resolve(*t)).collect();
         inquire::Select::new("There are multiple options availabe, choose one:", options)
             .prompt_skippable()?
-            .map(|selection| to_id.iter().find(|t| translator.resolve(**t) == selection))
-            .flatten()
+            .and_then(|selection| to_id.iter().find(|t| translator.resolve(**t) == selection))
             .copied()
     })
 }
@@ -231,7 +231,7 @@ fn print_translation(
     } else {
         lang.to_string()
     };
-    if to_id.len() == 0 {
+    if to_id.is_empty() {
         let text = [
             "'",
             from,
@@ -401,7 +401,7 @@ fn print_translation_entry_as_bullet_point(
 ) {
     let rfrom = translator.resolve(r.from);
     let rto = translator.resolve(r.to);
-    let text = if rto == "" {
+    let text = if rto.is_empty() {
         [
             "'",
             &highlight(rfrom, mark),
