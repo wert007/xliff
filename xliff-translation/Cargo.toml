@@ -6,10 +6,13 @@ edition = "2024"
 [dependencies]
 glob = "0.3.3"
 lasso = "0.7.3"
-quick-xml = { version = "0.39.2", features = ["serde", "serialize"] }
+quick-xml = { features = ["serde", "serialize"], git = "https://github.com/wert007/quick-xml.git", version = "0.41.0" }
 regex = "1.12.3"
 serde = "1.0.228"
 thiserror = "2.0.18"
 tinystr = "0.8.3"
 unicase = "2.9.0"
 xliff-raw = { version = "0.1.0", path = "../xliff-raw" }
+
+[dev-dependencies]
+temp-dir = "0.2.0"

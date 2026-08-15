@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     fs::File,
-    io::{BufReader, BufWriter},
+    io::{BufReader, BufWriter, Read, Seek, Write},
     path::{Path, PathBuf},
 };
 
@@ -17,6 +17,8 @@ pub type StringId = lasso::Spur;
 
 mod error;
 pub use error::Error;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LanguageStr(tinystr::TinyAsciiStr<8>);
@@ -92,6 +94,7 @@ pub struct TranslationFile {
     ids_to_source_and_translation: HashMap<lasso::Spur, (Spur, Option<Spur>)>,
     source_to_translation: HashMap<lasso::Spur, Vec<lasso::Spur>>,
     ids: HashMap<lasso::Spur, FastIndex>,
+    starts_with_bom: bool,
 }
 
 fn for_each_trans_unit(raw: &Xliff, mut cb: impl FnMut(&TransUnit, usize, usize)) {
@@ -134,9 +137,13 @@ fn for_each_trans_unit_in_group(
 
 impl TranslationFile {
     fn new(file: &PathBuf, is_base: bool, string_interner: &mut Rodeo) -> Result<Self> {
-        let raw: xliff_raw::version_1_2::relaxed::Xliff =
-            quick_xml::de::from_reader(BufReader::new(File::open(file)?))
-                .map_err(|e| Error::ParsingErrorInFile(file.clone(), e))?;
+        let mut r = BufReader::new(File::open(file)?);
+        let mut buf = [0u8; 3];
+        r.get_mut().read(&mut buf)?;
+        let starts_with_bom = &buf == b"\xEF\xBB\xBF";
+        r.get_mut().rewind()?;
+        let raw: xliff_raw::version_1_2::relaxed::Xliff = quick_xml::de::from_reader(r)
+            .map_err(|e| Error::ParsingErrorInFile(file.clone(), e))?;
         let mut ids = HashMap::new();
         let mut translated_ids = HashSet::new();
         let mut ids_with_same_translation = HashSet::new();
@@ -188,6 +195,7 @@ impl TranslationFile {
             ids,
             translated_ids,
             ids_with_same_translation,
+            starts_with_bom,
         })
     }
 
@@ -217,6 +225,7 @@ impl TranslationFile {
                 target: Some(Target {
                     text: translation_str,
                 }),
+                al_object_target: None,
                 note,
             }));
         }
@@ -258,16 +267,29 @@ impl TranslationFile {
             T: std::io::Write,
         {
             fn write_str(&mut self, s: &str) -> std::fmt::Result {
-                self.0.write_all(s.as_bytes()).map_err(|_| std::fmt::Error)
+                for (i, line) in s.split('\n').enumerate() {
+                    if i > 0 {
+                        self.0.write_all(b"\r\n").map_err(|_| std::fmt::Error)?;
+                    }
+                    self.0
+                        .write_all(line.as_bytes())
+                        .map_err(|_| std::fmt::Error)?;
+                }
+                Ok(())
             }
         }
-
-        let writer = BufWriter::new(File::create(self.path)?);
+        let mut writer = BufWriter::new(File::create(self.path)?);
+        if self.starts_with_bom {
+            writer.get_mut().write_all(b"\xEF\xBB\xBF")?;
+        }
+        writer
+            .get_mut()
+            .write_all(b"<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n")?;
         let mut writer = ToFmtWrite(writer);
         let mut se = quick_xml::se::Serializer::with_root(&mut writer, Some("xliff"))?;
-        se.expand_empty_elements(true)
-            .indent(' ', 4)
-            .set_quote_level(quick_xml::se::QuoteLevel::Full);
+        se.empty_element_handling(quick_xml::se::EmptyElementHandling::Expanded)
+            .indent(' ', 2)
+            .set_quote_level(quick_xml::se::QuoteLevel::Partial);
         self.raw.serialize(se)?;
         Ok(())
     }

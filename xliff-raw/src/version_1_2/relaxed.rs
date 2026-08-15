@@ -16,17 +16,25 @@ pub struct Xliff {
     pub version: String,
     #[serde(rename = "file")]
     pub files: Vec<File>,
+    #[serde(rename = "@xmlns")]
+    pub xmlns: String,
+    #[serde(rename = "@xmlns:xsi")]
+    pub xmlns_xsi: String,
+    #[serde(rename = "@xsi:schemaLocation")]
+    pub xsi_schema_location: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct File {
-    #[serde(rename = "@original")]
-    pub original: String,
-    #[serde(rename = "@source-language")]
-    pub source_language: Language,
     #[serde(rename = "@datatype")]
     pub datatype: String,
-    pub header: Option<Header>,
+    #[serde(rename = "@source-language")]
+    pub source_language: Language,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "@target-language")]
+    pub target_language: Option<Language>,
+    #[serde(rename = "@original")]
+    pub original: String,
+    // pub header: Option<Header>,
     pub body: Body,
 }
 
@@ -52,7 +60,7 @@ pub enum BodyElement {
 pub struct Group {
     #[serde(rename = "@id")]
     pub id: Option<String>,
-    #[serde(rename = "@datatype")]
+    #[serde(rename = "@datatype", skip)]
     pub datatype: Option<String>,
     #[serde(rename = "$value")]
     pub elements: Vec<GroupElement>,
@@ -83,7 +91,10 @@ pub struct TransUnit {
     #[serde(rename = "@xml:space")]
     pub xml_space: WhitespacePreservation,
     pub source: Source,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<Target>,
+    #[serde(rename = "@al-object-target", skip_serializing_if = "Option::is_none")]
+    pub al_object_target: Option<String>,
     #[serde(default)]
     pub note: Vec<Note>,
 }
@@ -106,10 +117,10 @@ pub struct Target {
 pub struct Note {
     #[serde(rename = "@from")]
     pub from: Option<String>,
-    #[serde(rename = "@priority")]
-    pub priority: Option<u8>,
     #[serde(rename = "@annotates")]
     pub annotates: Annotates,
+    #[serde(rename = "@priority")]
+    pub priority: Option<u8>,
     #[serde(rename = "$text")]
     #[serde(default)]
     pub text: String,

@@ -1452,9 +1452,8 @@ checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "quick-xml"
-version = "0.39.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "958f21e8e7ceb5a1aa7fa87fab28e7c75976e0bfe7e23ff069e0a260f894067d"
+version = "0.41.0"
+source = "git+https://github.com/wert007/quick-xml.git#ce8f427f6095345e320f4f6f7197bdb9408e5a11"
 dependencies = [
  "memchr",
  "serde",
@@ -2085,6 +2084,12 @@ dependencies = [
  "torch-sys",
  "zip",
 ]
+
+[[package]]
+name = "temp-dir"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "016ef9739649996fcc983b9c588fe3d557cf216d4d98503ce1b057ab5a66d689"
 
 [[package]]
 name = "tempfile"
@@ -2793,6 +2798,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "serde",
+ "temp-dir",
  "thiserror 2.0.18",
  "tinystr",
  "unicase",

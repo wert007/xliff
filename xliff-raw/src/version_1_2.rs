@@ -160,12 +160,15 @@ mod tests {
     #[test]
     fn big_file1() {
         let _xliff: Xliff =
-            quick_xml::de::from_str(include_str!("../../examples/smartPROJECT.g.xlf")).unwrap();
+            quick_xml::de::from_str(include_str!("../../examples/default/smartPROJECT.g.xlf"))
+                .unwrap();
     }
 
     #[test]
     fn big_file2() {
-        let _xliff: Xliff =
-            quick_xml::de::from_str(include_str!("../../examples/smartPROJECT.de-de.xlf")).unwrap();
+        let _xliff: Xliff = quick_xml::de::from_str(include_str!(
+            "../../examples/default/smartPROJECT.de-de.xlf"
+        ))
+        .unwrap();
     }
 }
