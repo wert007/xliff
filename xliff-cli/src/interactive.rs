@@ -358,9 +358,13 @@ fn ask_for_decision(
 ) -> Decision {
     if small {
         loop {
-            let result = inquire::CustomType::<Decision>::new("Add this translation? [y, n, e]")
-                .prompt()
-                .unwrap();
+            let Ok(result) =
+                inquire::CustomType::<Decision>::new("Add this translation? [y, n, e]")
+                    .with_default(Decision::Yes)
+                    .prompt()
+            else {
+                break Decision::HardExit;
+            };
             if [Decision::Yes, Decision::No, Decision::Edit].contains(&result) {
                 break result;
             }
