@@ -25,6 +25,7 @@ pub enum Decision {
     FindSource,
     Find(String),
     Help,
+    Languages,
     HardExit,
 }
 
@@ -41,6 +42,7 @@ impl std::str::FromStr for Decision {
             "s" => Self::Split,
             "c" => Self::Context,
             "f" => Self::FindSource,
+            "l" => Self::Languages,
             "h" | "help" | "?" => Self::Help,
             f => {
                 if let Some(term) = f.strip_prefix("f ") {
@@ -139,6 +141,13 @@ impl UndecidedTranslation {
                     }
                     break;
                 }
+            }
+            Decision::Languages => {
+                let mut langs: Vec<_> = self.full_id.iter().map(|f| f.0.to_string()).collect();
+                langs.sort();
+                langs.dedup();
+                println!("Targeting these languages: {}", langs.join(", "));
+                return self.decide(translator, decision, context);
             }
             Decision::Help => unreachable!(),
             Decision::Split => {
@@ -365,12 +374,14 @@ fn ask_for_decision(
                 break decision.clone();
             }
             let Ok(result) = inquire::CustomType::<Decision>::new(
-                "Add this translation? [y, n, a, d, e, s, c, f, ?]",
+                "Add this translation? [y, n, a, d, e, s, l, c, f, ?]",
             )
             .prompt() else {
                 break Decision::HardExit;
             };
-            if result != Decision::Help || (count <= 1 && result == Decision::Split) {
+            if result != Decision::Help
+                || (count <= 1 && [Decision::Split, Decision::Languages].contains(&result))
+            {
                 break result;
             }
             if available_translations > 0 {
@@ -385,6 +396,7 @@ fn ask_for_decision(
                     "Use [s] to decide for each translation seperatly of the {} translations.",
                     count
                 );
+                println!("Use [l] to show the target languages involved");
             }
             println!("Use [c] to show context with similar textes on the page/table/etc.");
             println!(
