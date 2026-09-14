@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod ai;
+mod api;
 mod interactive;
 mod utils;
 
@@ -18,7 +19,8 @@ struct Args {
     #[command(subcommand)]
     command: Command,
     #[clap(short, long)]
-    /// Path were translation files are stored. By default
+    /// Path were translation files are stored. By default the current
+    /// directory, and all its descendants.
     directory: Option<String>,
 }
 
@@ -42,6 +44,10 @@ impl Args {
             Translator::new(&files).context("Failed creating translator")?;
         Ok(translator)
     }
+
+    pub fn claims_stdout(&self) -> bool {
+        matches!(&self.command, Command::Api(_))
+    }
 }
 
 #[derive(Debug, Subcommand, Clone)]
@@ -50,6 +56,7 @@ enum Command {
     Untranslated(Untranslated),
     /// Add translations, if there are some missing, has further options to select how translations are choosen.
     Add(Add),
+    Api(api::Api),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, strum::Display, strum::AsRefStr)]
@@ -99,6 +106,7 @@ struct Add {
     #[clap(short, long)]
     edit: bool,
 }
+
 impl Add {
     fn ai(&self) -> AutoTranslationHandling {
         if self.edit {
@@ -137,14 +145,17 @@ struct Untranslated;
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let translator = args.create_translator()?;
-    println!("Working on these files:");
-    println!(" - {} [base]", translator.base_file().display());
-    for file in translator.loaded_files() {
-        println!(" - {}", file.display());
+    if !args.claims_stdout() {
+        println!("Working on these files:");
+        println!(" - {} [base]", translator.base_file().display());
+        for file in translator.loaded_files() {
+            println!(" - {}", file.display());
+        }
     }
     match args.command {
         Command::Untranslated(untranslated) => run_untranslated(translator, untranslated),
         Command::Add(auto) => run_auto(translator, auto),
+        Command::Api(api) => api.run(translator),
     }
 }
 
