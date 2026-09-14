@@ -15,12 +15,23 @@ mod utils;
 struct Args {
     #[command(subcommand)]
     command: Command,
+    #[clap(short, long)]
+    directory: Option<String>,
 }
 
 impl Args {
     pub fn create_translator(&self) -> anyhow::Result<xliff_translation::Translator> {
         let mut files = Vec::new();
-        for file in glob::glob("**/*.xlf").context("Failed resolving glob")? {
+        for file in glob::glob(&format!(
+            "{}/*.xlf",
+            self.directory
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("**")
+                .trim_end_matches('/')
+        ))
+        .context("Failed resolving glob")?
+        {
             let file = file.context("Path could not get resolved")?;
             files.push(file);
         }
