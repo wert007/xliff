@@ -1,6 +1,6 @@
 use ambassador::{Delegate, delegatable_trait};
 use clap::{Parser, Subcommand};
-use xliff_translation::LanguageStr;
+use xliff_translation::{LanguageStr, string_id_from_u32};
 
 #[derive(Debug, Parser, Clone)]
 pub struct Api {
@@ -28,6 +28,7 @@ trait Runnable {
 pub enum ApiCommand {
     GetTranslationFiles(GetTranslationFiles),
     GetMissingTranslations(GetMissingTranslations),
+    AddTranslation(AddTranslation),
 }
 
 #[derive(Debug, Clone, Default, clap::Parser)]
@@ -94,5 +95,30 @@ impl Runnable for GetMissingTranslations {
                 })
                 .collect::<anyhow::Result<Vec<MissingTranslationApi>>>()?,
         )?)
+    }
+}
+
+#[derive(Debug, Clone, Default, clap::Parser)]
+pub struct AddTranslation {
+    target_languages: Vec<String>,
+    id: u32,
+    translation: String,
+}
+
+impl Runnable for AddTranslation {
+    fn run(
+        &self,
+        mut translator: xliff_translation::Translator,
+    ) -> anyhow::Result<serde_json::Value> {
+        let target = translator.intern(self.translation.clone());
+        for l in &self.target_languages {
+            translator.add_translation(
+                LanguageStr::try_from_str(l)?,
+                unsafe { string_id_from_u32(self.id) },
+                target,
+            )?;
+        }
+        translator.save_files()?;
+        Ok(serde_json::Value::Null)
     }
 }

@@ -420,6 +420,10 @@ pub fn empty_string_id() -> Spur {
     Spur::try_from_usize(EMPTY_STRING_ID).unwrap()
 }
 
+pub unsafe fn string_id_from_u32(value: u32) -> Spur {
+    Spur::try_from_usize(value as _).unwrap()
+}
+
 impl Translator {
     pub fn new(files: &[PathBuf]) -> Result<Self> {
         let mut base = None;
