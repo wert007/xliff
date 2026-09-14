@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use lasso::Spur;
+
 use crate::LanguageStr;
 
 #[derive(Debug, thiserror::Error)]
@@ -24,4 +26,6 @@ pub enum Error {
     SerializingError(#[from] quick_xml::se::SeError),
     #[error("Language {0} does not exist right now.")]
     LanguageNotFound(LanguageStr),
+    #[error("Translation was not found in base file. Internal id was {0:?}.")]
+    TranslationNotInBaseFile(Spur),
 }

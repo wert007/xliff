@@ -40,6 +40,10 @@ impl LanguageStr {
     fn is_base(&self) -> bool {
         self.0 == "g"
     }
+
+    pub fn contains(&self, pat: &str) -> bool {
+        self.0.contains(pat)
+    }
 }
 
 pub type Result<T> = std::result::Result<T, error::Error>;
@@ -231,11 +235,8 @@ impl TranslationFile {
         }
     }
 
-    fn get_source_and_translation(&self, id: Spur) -> (Spur, Option<Spur>) {
-        self.ids_to_source_and_translation
-            .get(&id)
-            .copied()
-            .expect("This apparently cannot fail")
+    fn get_source_and_translation(&self, id: Spur) -> Option<(Spur, Option<Spur>)> {
+        self.ids_to_source_and_translation.get(&id).copied()
     }
 
     fn search_for_source_regex(&self, needle: &regex::Regex, string_interner: &Rodeo) -> Vec<Spur> {
@@ -508,9 +509,13 @@ impl Translator {
         &self,
         language: LanguageStr,
         id: Spur,
-    ) -> Result<(Spur, Option<Spur>)> {
+    ) -> Result<Option<(Spur, Option<Spur>)>> {
         if language.is_base() {
-            return Ok(self.base.get_source_and_translation(id));
+            return Ok(Some(
+                self.base
+                    .get_source_and_translation(id)
+                    .ok_or(error::Error::TranslationNotInBaseFile(id))?,
+            ));
         }
         Ok(self
             .languages

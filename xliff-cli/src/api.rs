@@ -1,5 +1,6 @@
 use ambassador::{Delegate, delegatable_trait};
 use clap::{Parser, Subcommand};
+use xliff_translation::LanguageStr;
 
 #[derive(Debug, Parser, Clone)]
 pub struct Api {
@@ -26,6 +27,7 @@ trait Runnable {
 #[delegate(Runnable)]
 pub enum ApiCommand {
     GetTranslationFiles(GetTranslationFiles),
+    GetMissingTranslations(GetMissingTranslations),
 }
 
 #[derive(Debug, Clone, Default, clap::Parser)]
@@ -41,5 +43,56 @@ impl Runnable for GetTranslationFiles {
             files.insert(0, translator.base_file().into());
         }
         Ok(serde_json::to_value(files)?)
+    }
+}
+
+#[derive(Debug, Clone, Default, clap::Parser)]
+pub struct GetMissingTranslations {
+    #[clap(short, long)]
+    language: Option<String>,
+}
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct MissingTranslationApi {
+    language: String,
+    source_id: u32,
+    source: String,
+    id: u32,
+    existing_translations: Vec<(u32, String)>,
+}
+
+impl Runnable for GetMissingTranslations {
+    fn run(&self, translator: xliff_translation::Translator) -> anyhow::Result<serde_json::Value> {
+        Ok(serde_json::to_value(
+            &translator
+                .find_missing_translations()
+                .into_iter()
+                .filter_map(|m| {
+                    if let Some(l) = &self.language
+                        && !m.language.contains(l)
+                    {
+                        return None;
+                    }
+                    let Ok(Some((source_id, _))) = translator
+                        .get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), m.id)
+                    else {
+                        return None;
+                    };
+                    let source = translator.resolve(source_id).into();
+                    let existing_translations = translator
+                        .get_translation(m.language, source_id)
+                        .iter()
+                        .map(|s| (s.into_inner().get(), translator.resolve(*s).into()))
+                        .collect();
+
+                    Some(anyhow::Result::Ok(MissingTranslationApi {
+                        language: m.language.to_string(),
+                        source_id: source_id.into_inner().get(),
+                        source,
+                        existing_translations,
+                        id: m.id.into_inner().get(),
+                    }))
+                })
+                .collect::<anyhow::Result<Vec<MissingTranslationApi>>>()?,
+        )?)
     }
 }

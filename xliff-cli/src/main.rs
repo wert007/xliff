@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
     }
     match args.command {
         Command::Untranslated(untranslated) => run_untranslated(translator, untranslated),
-        Command::Add(auto) => run_auto(translator, auto),
+        Command::Add(auto) => run_add(translator, auto),
         Command::Api(api) => api.run(translator),
     }
 }
@@ -166,7 +166,7 @@ impl Context {
     }
 }
 
-fn run_auto(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
+fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
     let mut added_translations = 0;
     let mut skipped_translations = 0;
     let mut made_translations: Vec<UndecidedTranslation> = Vec::new();
@@ -177,8 +177,9 @@ fn run_auto(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> 
         missing_translations.len()
     );
     for t in missing_translations {
-        let (source, _) =
-            translator.get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), t.id)?;
+        let (source, _) = translator
+            .get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), t.id)?
+            .expect("Base file has to have translation");
         let options = translator.get_translation(t.language, source);
         let (should_translate, mut recommended) = if options.is_empty() {
             if is_german(t.language) {
