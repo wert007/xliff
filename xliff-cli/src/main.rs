@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
 use xliff_translation::{LanguageStr, Translator};
@@ -16,6 +18,7 @@ struct Args {
     #[command(subcommand)]
     command: Command,
     #[clap(short, long)]
+    /// Path were translation files are stored. By default
     directory: Option<String>,
 }
 
@@ -43,23 +46,13 @@ impl Args {
 
 #[derive(Debug, Subcommand, Clone)]
 enum Command {
+    /// Test, that there are no untranslated entries left!
     Untranslated(Untranslated),
-    Unify(Unify),
-    Auto(Auto),
+    /// Add translations, if there are some missing, has further options to select how translations are choosen.
+    Add(Add),
 }
 
-#[derive(
-    Debug,
-    Default,
-    strum::FromRepr,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    strum::Display,
-    strum::AsRefStr,
-    strum::EnumString,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, strum::Display, strum::AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 enum AutoTranslationHandling {
     #[default]
@@ -68,45 +61,78 @@ enum AutoTranslationHandling {
     Ask,
 }
 
+impl FromStr for AutoTranslationHandling {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
+            "s" | "skip" => Self::Skip,
+            "a" | "ask" => Self::Ask,
+            "t" | "translate" => Self::Translate,
+            unknown => {
+                return Err(format!(
+                    "Unknown variant {unknown}, use skip, translate or ask instead!"
+                ));
+            }
+        })
+    }
+}
+
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
-struct Auto {
+/// Add translations.
+struct Add {
     /// Automatically accept matches from existing translations, where there is
     /// only one possibility. Valid values are [skip, translate, ask].
-    #[clap(short = 'u', long, default_value = "translate")]
-    unique: AutoTranslationHandling,
+    #[clap(short = 'u', long, default_value = "t")]
+    unique: Option<AutoTranslationHandling>,
     /// Automatically accept matches from existing translations, where there are
     /// multiple possibilities. Whichone will be choosen is not specified. Valid
     /// values are [skip, translate, ask].
     #[clap(short, long)]
-    multiple: AutoTranslationHandling,
+    multiple: Option<AutoTranslationHandling>,
     /// Automatically accept ai translations. Valid values are [skip, translate,
     /// ask].
     #[clap(short, long)]
-    ai: AutoTranslationHandling,
+    ai: Option<AutoTranslationHandling>,
     /// Gives you the chance to manually translate skipped entries, if you
     /// enabled.
     #[clap(short, long)]
     edit: bool,
 }
-impl Auto {
-    fn edit(&self, unique: AutoTranslationHandling) -> AutoTranslationHandling {
+impl Add {
+    fn ai(&self) -> AutoTranslationHandling {
         if self.edit {
             AutoTranslationHandling::Ask
+        } else if let Some(it) = self.ai {
+            it
         } else {
-            unique
+            AutoTranslationHandling::Skip
+        }
+    }
+
+    fn multiple(&self) -> AutoTranslationHandling {
+        if self.edit {
+            AutoTranslationHandling::Ask
+        } else if let Some(it) = self.multiple {
+            it
+        } else {
+            AutoTranslationHandling::Skip
+        }
+    }
+
+    fn unique(&self) -> AutoTranslationHandling {
+        if self.edit {
+            AutoTranslationHandling::Ask
+        } else if let Some(it) = self.unique {
+            it
+        } else {
+            AutoTranslationHandling::Translate
         }
     }
 }
 
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
-struct Unify;
-
-#[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
-struct Untranslated {
-    /// Error if there are any untranslated entries. Useful for CI.
-    #[clap(short, long)]
-    error: bool,
-}
+struct Untranslated;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -118,8 +144,7 @@ fn main() -> anyhow::Result<()> {
     }
     match args.command {
         Command::Untranslated(untranslated) => run_untranslated(translator, untranslated),
-        Command::Unify(unify) => run_unify(translator, unify),
-        Command::Auto(auto) => run_auto(translator, auto),
+        Command::Add(auto) => run_auto(translator, auto),
     }
 }
 
@@ -130,11 +155,7 @@ impl Context {
     }
 }
 
-// fn get_recommended(translator: &Translator, language: LanguageStr, source: StringId) -> Vec<StringId> {
-//     todo!
-// }
-
-fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error> {
+fn run_auto(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
     let mut added_translations = 0;
     let mut skipped_translations = 0;
     let mut made_translations: Vec<UndecidedTranslation> = Vec::new();
@@ -157,7 +178,7 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
                     .collect();
                 if all_options.is_empty() {
                     (
-                        auto.ai,
+                        auto.ai(),
                         LazyTranslation::maybe_translate(
                             translator.resolve(source),
                             !made_translations.iter().any(|t| t.from == source),
@@ -165,17 +186,17 @@ fn run_auto(mut translator: Translator, auto: Auto) -> Result<(), anyhow::Error>
                     )
                 } else {
                     (
-                        auto.multiple,
+                        auto.multiple(),
                         LazyTranslation::multiple(all_options.as_slice()),
                     )
                 }
             } else {
-                (auto.edit(auto.unique), LazyTranslation::instant(source))
+                (auto.unique(), LazyTranslation::instant(source))
             }
         } else if options.len() == 1 {
-            (auto.unique, LazyTranslation::instant(options[0]))
+            (auto.unique(), LazyTranslation::instant(options[0]))
         } else {
-            (auto.multiple, LazyTranslation::multiple(options))
+            (auto.multiple(), LazyTranslation::multiple(options))
         };
 
         match should_translate {
@@ -248,36 +269,11 @@ fn is_german(language: LanguageStr) -> bool {
     language.starts_with("de")
 }
 
-fn run_unify(translator: Translator, Unify: Unify) -> Result<(), anyhow::Error> {
-    for language in translator.languages() {
-        // TODO: Sort and dedup?
-        let sources = translator.get_sources(language);
-        for source in sources {
-            let result = translator.get_translation(language, source);
-            if result.len() <= 1 {
-                continue;
-            }
-            eprintln!(
-                "{} has {} options in language {language}.",
-                translator.resolve(source),
-                result.len()
-            );
-            for option in result {
-                eprintln!(" - {}", translator.resolve(*option));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn run_untranslated(translator: Translator, untranslated: Untranslated) -> anyhow::Result<()> {
-    if untranslated == Untranslated::default() {
-        bail!("Specify at least one option of --error or --fix");
-    }
+fn run_untranslated(translator: Translator, Untranslated: Untranslated) -> anyhow::Result<()> {
     let missing = translator.find_missing_translations();
-    if untranslated.error && !missing.is_empty() {
+    if !missing.is_empty() {
         bail!("Found {} untranslated entries.", missing.len());
     } else {
-        todo!()
+        Ok(())
     }
 }
