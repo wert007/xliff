@@ -74,17 +74,24 @@ pub struct FastIndex {
     trans_unit_index: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TranslationEntry {
     pub id: StringId,
     pub from: StringId,
     pub to: StringId,
+    pub lang: LanguageStr,
 }
 impl TranslationEntry {
-    fn from_tuple(id: Spur, (from, to): (Spur, Option<Spur>)) -> TranslationEntry {
+    fn from_tuple(
+        id: Spur,
+        (from, to): (Spur, Option<Spur>),
+        lang: LanguageStr,
+    ) -> TranslationEntry {
         Self {
             id,
             from,
             to: to.unwrap(),
+            lang,
         }
     }
 }
@@ -99,6 +106,7 @@ pub struct TranslationFile {
     source_to_translation: HashMap<lasso::Spur, Vec<lasso::Spur>>,
     ids: HashMap<lasso::Spur, FastIndex>,
     starts_with_bom: bool,
+    lang: LanguageStr,
 }
 
 fn for_each_trans_unit(raw: &Xliff, mut cb: impl FnMut(&TransUnit, usize, usize)) {
@@ -140,7 +148,12 @@ fn for_each_trans_unit_in_group(
 }
 
 impl TranslationFile {
-    fn new(file: &PathBuf, is_base: bool, string_interner: &mut Rodeo) -> Result<Self> {
+    fn new(
+        file: &PathBuf,
+        is_base: bool,
+        string_interner: &mut Rodeo,
+        lang: LanguageStr,
+    ) -> Result<Self> {
         let mut r = BufReader::new(File::open(file)?);
         let mut buf = [0u8; 3];
         r.get_mut().read(&mut buf)?;
@@ -200,6 +213,7 @@ impl TranslationFile {
             translated_ids,
             ids_with_same_translation,
             starts_with_bom,
+            lang,
         })
     }
 
@@ -339,7 +353,7 @@ impl TranslationFile {
                         Some((id, self.ids_to_source_and_translation.get(&id).copied()?))
                     })
                     .filter(|(_, (_, t))| t.is_some())
-                    .map(|(id, tuple)| TranslationEntry::from_tuple(id, tuple)),
+                    .map(|(id, tuple)| TranslationEntry::from_tuple(id, tuple, self.lang)),
             );
             if result.len() > 10 {
                 break;
@@ -360,7 +374,7 @@ impl TranslationFile {
                 .into_iter()
                 .filter_map(|id| Some((id, self.ids_to_source_and_translation.get(&id).copied()?)))
                 .filter(|(_, (_, t))| t.is_some())
-                .map(|(id, tuple)| TranslationEntry::from_tuple(id, tuple))
+                .map(|(id, tuple)| TranslationEntry::from_tuple(id, tuple, self.lang))
                 .collect::<Vec<_>>();
             if result.is_empty() || found.len() < 10 {
                 result.append(&mut found);
@@ -383,7 +397,7 @@ impl TranslationFile {
             })
             .filter_map(|(k, (f, t))| {
                 let t = (*t)?;
-                Some(TranslationEntry::from_tuple(*k, (*f, Some(t))))
+                Some(TranslationEntry::from_tuple(*k, (*f, Some(t)), self.lang))
             })
             .collect()
     }
@@ -397,6 +411,10 @@ impl TranslationFile {
             todo!("This is kind of a soft error, but also a hard error. hmm.")
         };
         trans_unit.note.clone()
+    }
+
+    fn total_translation_count(&self) -> usize {
+        self.translated_ids.len()
     }
 }
 
@@ -446,7 +464,8 @@ impl Translator {
                 .rsplit_once('.')
                 .ok_or(error::Error::UnsupportedFileNameFormat(file.to_path_buf()))?;
             let language_code = LanguageStr::try_from_str(language_code)?;
-            let it = TranslationFile::new(file, language_code.is_base(), &mut rodeo)?;
+            let it =
+                TranslationFile::new(file, language_code.is_base(), &mut rodeo, language_code)?;
             if language_code.is_base() {
                 base = Some(it);
             } else {
@@ -591,11 +610,20 @@ impl Translator {
         &self,
         find: &str,
         language_hint: Option<LanguageStr>,
+        dedup_languages: bool,
     ) -> std::result::Result<Vec<TranslationEntry>, regex::Error> {
         let find = RegexBuilder::new(find).case_insensitive(true).build()?;
 
         let mut result: Vec<TranslationEntry> = match language_hint {
-            Some(lang) => self.languages[&lang].find_in_translations(&find, &self.string_interner),
+            Some(lang) => match self.languages.get(&lang) {
+                Some(f) => f.find_in_translations(&find, &self.string_interner),
+                None => self
+                    .languages
+                    .iter()
+                    .filter(|(l, _)| l.contains(&lang.0))
+                    .flat_map(|(_, f)| f.find_in_translations(&find, &self.string_interner))
+                    .collect(),
+            },
             None => self
                 .languages
                 .values()
@@ -603,7 +631,7 @@ impl Translator {
                 .collect(),
         };
         result.sort_by_key(|r| (r.from, r.to));
-        result.dedup_by_key(|f| (f.from, f.to));
+        result.dedup_by_key(|f| (dedup_languages && f.lang.starts_with("de"), f.from, f.to));
         Ok(result)
     }
 
@@ -613,5 +641,12 @@ impl Translator {
 
     pub fn loaded_files(&self) -> Vec<PathBuf> {
         self.languages.values().map(|v| v.path.clone()).collect()
+    }
+
+    pub fn total_translation_count(&self) -> usize {
+        self.languages
+            .values()
+            .map(|l| l.total_translation_count())
+            .sum()
     }
 }

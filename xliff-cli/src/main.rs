@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
+use inquire::ui::{RenderConfig, Styled};
 use xliff_translation::{LanguageStr, Translator};
 
 use crate::{
@@ -11,6 +12,7 @@ use crate::{
 
 mod ai;
 mod api;
+mod edit;
 mod interactive;
 mod utils;
 
@@ -56,6 +58,8 @@ enum Command {
     Untranslated(Untranslated),
     /// Add translations, if there are some missing, has further options to select how translations are choosen.
     Add(Add),
+    Edit(edit::Edit),
+    /// The api interface, which allows to make chances via multiple calls to xliff-cli.
     Api(api::Api),
 }
 
@@ -155,6 +159,7 @@ fn main() -> anyhow::Result<()> {
     match args.command {
         Command::Untranslated(untranslated) => run_untranslated(translator, untranslated),
         Command::Add(auto) => run_add(translator, auto),
+        Command::Edit(edit) => edit::run_edit(translator, edit),
         Command::Api(api) => api.run(translator),
     }
 }
@@ -165,7 +170,6 @@ impl Context {
         Self {}
     }
 }
-
 fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
     let mut added_translations = 0;
     let mut skipped_translations = 0;

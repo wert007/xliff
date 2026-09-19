@@ -163,13 +163,13 @@ impl UndecidedTranslation {
             }
             Decision::FindSource => {
                 let related = translator
-                    .find_in_translations(&regex::escape(from), language_hint)
+                    .find_in_translations(&regex::escape(from), language_hint, false)
                     .unwrap();
                 found_related(translator, from, related);
                 return self.decide(translator, decision, context);
             }
             Decision::Find(find) => {
-                let related = match translator.find_in_translations(&find, language_hint) {
+                let related = match translator.find_in_translations(&find, language_hint, false) {
                     Ok(it) => it,
                     Err(err) => {
                         eprintln!("Failed parsing search term: {err}");
@@ -319,7 +319,7 @@ fn found_context(
         );
         let count = related.len();
         for r in related {
-            print_translation_entry_as_bullet_point(r, translator, "");
+            print_translation_entry_as_bullet_point(r, translator, "", "");
         }
         if count > 20 {
             println!("The previous {count} texts are probably close by in the ui.",);
@@ -345,7 +345,7 @@ fn found_related(
             related.len()
         );
         for r in related {
-            print_translation_entry_as_bullet_point(r, translator, from);
+            print_translation_entry_as_bullet_point(r, translator, from, "");
         }
     }
 }
@@ -410,15 +410,17 @@ fn ask_for_decision(
     }
 }
 
-fn print_translation_entry_as_bullet_point(
+pub fn print_translation_entry_as_bullet_point(
     r: xliff_translation::TranslationEntry,
     translator: &Translator,
     mark: &str,
+    prefix: &str,
 ) {
     let rfrom = translator.resolve(r.from);
     let rto = translator.resolve(r.to);
     let text = if rto.is_empty() {
         [
+            prefix,
             "'",
             &highlight(rfrom, mark),
             "' => ",
@@ -429,6 +431,7 @@ fn print_translation_entry_as_bullet_point(
         .concat()
     } else {
         [
+            prefix,
             "'",
             &highlight(rfrom, mark),
             "' => '",
