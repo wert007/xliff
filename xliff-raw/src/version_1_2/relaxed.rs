@@ -16,12 +16,20 @@ pub struct Xliff {
     pub version: String,
     #[serde(rename = "file")]
     pub files: Vec<File>,
-    #[serde(rename = "@xmlns")]
-    pub xmlns: String,
-    #[serde(rename = "@xmlns:xsi")]
-    pub xmlns_xsi: String,
-    #[serde(rename = "@xsi:schemaLocation")]
-    pub xsi_schema_location: String,
+    #[serde(rename = "@xmlns", default, skip_serializing_if = "Option::is_none")]
+    pub xmlns: Option<String>,
+    #[serde(
+        rename = "@xmlns:xsi",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub xmlns_xsi: Option<String>,
+    #[serde(
+        rename = "@xsi:schemaLocation",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub xsi_schema_location: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
