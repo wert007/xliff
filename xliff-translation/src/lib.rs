@@ -450,21 +450,6 @@ impl TranslationFile {
     fn total_translation_count(&self) -> usize {
         self.translated_ids.len()
     }
-
-    // TODO: use small vec or something like it!
-    fn source_to_id(&self, source: Spur) -> Option<Vec<Spur>> {
-        let result: Vec<Spur> = self
-            .ids_to_source_and_translation
-            .iter()
-            .filter(|(_, (s, _))| source == *s)
-            .map(|(i, _)| *i)
-            .collect();
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
-    }
 }
 
 fn get_all_ids_containing(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {

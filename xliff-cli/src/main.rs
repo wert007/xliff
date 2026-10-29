@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
-use inquire::ui::{RenderConfig, Styled};
 use xliff_translation::{LanguageStr, Translator};
 
 use crate::{
@@ -219,12 +218,12 @@ fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
 fn handle_changed_source_texts(
     mismatched_sources: Vec<xliff_translation::MissingTranslation>,
     translator: &mut Translator,
-    add: Add,
+    _add: Add,
 ) -> anyhow::Result<Vec<UndecidedTranslation>> {
     let mut skipped = 0;
     let mut result = Vec::new();
     for mismatched in mismatched_sources {
-        let Some((old_source, old_translation)) =
+        let Some((_old_source, old_translation)) =
             translator.get_source_and_translation(mismatched.language, mismatched.id)?
         else {
             todo!("How Reachable?");

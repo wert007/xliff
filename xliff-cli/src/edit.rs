@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
-use clap::{Parser, builder::styling::AnsiColor};
+use clap::Parser;
 use inquire::ui::{Attributes, RenderConfig, Styled};
-use regex::{Regex, RegexBuilder};
+use regex::Regex;
 use xliff_translation::{LanguageStr, TranslationEntry, Translator};
 
 use crate::interactive::print_translation_entry_as_bullet_point;
@@ -28,7 +28,7 @@ pub fn run_edit(
     mut translator: Translator,
     Edit {
         mut regex,
-        mut case_sensitive,
+        case_sensitive,
     }: Edit,
 ) -> Result<(), anyhow::Error> {
     println!(

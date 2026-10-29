@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use lasso::Spur;
-
 use crate::LanguageStr;
 
 #[derive(Debug, thiserror::Error)]
