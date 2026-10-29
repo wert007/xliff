@@ -103,8 +103,10 @@ pub struct TranslationFile {
     translated_ids: HashSet<lasso::Spur>,
     ids_with_same_translation: HashSet<lasso::Spur>,
     ids_to_source_and_translation: HashMap<lasso::Spur, (Spur, Option<Spur>)>,
+    duplicated_ids_to_source_and_translation: HashMap<lasso::Spur, Vec<(Spur, Option<Spur>)>>,
     source_to_translation: HashMap<lasso::Spur, Vec<lasso::Spur>>,
     ids: HashMap<lasso::Spur, FastIndex>,
+    sources: HashSet<lasso::Spur>,
     starts_with_bom: bool,
     lang: LanguageStr,
 }
@@ -163,8 +165,11 @@ impl TranslationFile {
             .map_err(|e| Error::ParsingErrorInFile(file.clone(), e))?;
         let mut ids = HashMap::new();
         let mut translated_ids = HashSet::new();
+        let mut sources = HashSet::new();
         let mut ids_with_same_translation = HashSet::new();
         let mut ids_to_source_and_translation = HashMap::new();
+        let mut duplicated_ids_to_source_and_translation: HashMap<Spur, Vec<(Spur, Option<Spur>)>> =
+            HashMap::new();
         let mut source_to_translation: HashMap<Spur, Vec<Spur>> = HashMap::new();
 
         // let mut file_index = 0;
@@ -172,12 +177,18 @@ impl TranslationFile {
         for_each_trans_unit(&raw, |trans_unit, file_index, trans_unit_index| {
             let id = string_interner.get_or_intern(&trans_unit.id);
             let source = string_interner.get_or_intern(trans_unit.source.text.clone());
+            sources.insert(source);
             let target = trans_unit
                 .target
                 .as_ref()
                 .map(|t| string_interner.get_or_intern(t.text.clone()));
             // assert_eq!(string_interner.resolve(&id), &trans_unit.id);
-            ids_to_source_and_translation.insert(id, (source, target));
+            if let Some(entry) = ids_to_source_and_translation.insert(id, (source, target)) {
+                duplicated_ids_to_source_and_translation
+                    .entry(id)
+                    .or_default()
+                    .push(entry);
+            }
             if source != empty_string_id()
                 && (is_base || target.is_some_and(|t| t != empty_string_id()))
             {
@@ -207,8 +218,10 @@ impl TranslationFile {
         Ok(Self {
             path: file.clone(),
             raw,
+            sources,
             source_to_translation,
             ids_to_source_and_translation,
+            duplicated_ids_to_source_and_translation,
             ids,
             translated_ids,
             ids_with_same_translation,
@@ -416,6 +429,21 @@ impl TranslationFile {
     fn total_translation_count(&self) -> usize {
         self.translated_ids.len()
     }
+
+    // TODO: use small vec or something like it!
+    fn source_to_id(&self, source: Spur) -> Option<Vec<Spur>> {
+        let result: Vec<Spur> = self
+            .ids_to_source_and_translation
+            .iter()
+            .filter(|(_, (s, _))| source == *s)
+            .map(|(i, _)| *i)
+            .collect();
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
+    }
 }
 
 fn get_all_ids_containing(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {
@@ -490,6 +518,31 @@ impl Translator {
             );
         }
         missing_ids
+    }
+
+    pub fn find_changed_source_text(&self) -> Vec<MissingTranslation> {
+        let mut changed_source_ids = Vec::new();
+        for (lang_code, lang_file) in &self.languages {
+            changed_source_ids.extend(self.base.sources.difference(&lang_file.sources).flat_map(
+                |s| {
+                    self.base
+                        .source_to_id(*s)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|id| MissingTranslation::new(*lang_code, id))
+                },
+            ));
+            changed_source_ids.extend(lang_file.sources.difference(&self.base.sources).flat_map(
+                |s| {
+                    lang_file
+                        .source_to_id(*s)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|id| MissingTranslation::new(*lang_code, id))
+                },
+            ));
+        }
+        changed_source_ids
     }
 
     pub fn find_untranslated_entries(&self) -> Vec<MissingTranslation> {

@@ -180,6 +180,11 @@ fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
         "There are {} translations missing.",
         missing_translations.len()
     );
+    let mismatched_sources = translator.find_changed_source_text();
+    println!(
+        "The source text of {} translations changed.",
+        mismatched_sources.len()
+    );
     for t in missing_translations {
         let (source, _) = translator
             .get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), t.id)?
