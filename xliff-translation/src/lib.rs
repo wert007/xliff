@@ -329,6 +329,27 @@ impl TranslationFile {
             .unwrap_or(&EMPTY_VEC)
     }
 
+    fn change_source(&mut self, id: Spur, source: Spur, source_txt: String) {
+        let Some(index) = self.ids.get(&id) else {
+            return;
+        };
+
+        self.ids_to_source_and_translation
+            .get_mut(&id)
+            .expect("This should exist")
+            .0 = source;
+
+        let BodyElement::Group(group) = &mut self.raw.files[index.file_index].body.elements[0]
+        else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        let GroupElement::TransUnit(trans_unit) = &mut group.elements[index.trans_unit_index]
+        else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        trans_unit.source = Source { text: source_txt };
+    }
+
     fn change_translation(
         &mut self,
         id: Spur,
@@ -522,25 +543,15 @@ impl Translator {
 
     pub fn find_changed_source_text(&self) -> Vec<MissingTranslation> {
         let mut changed_source_ids = Vec::new();
-        for (lang_code, lang_file) in &self.languages {
-            changed_source_ids.extend(self.base.sources.difference(&lang_file.sources).flat_map(
-                |s| {
-                    self.base
-                        .source_to_id(*s)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|id| MissingTranslation::new(*lang_code, id))
-                },
-            ));
-            changed_source_ids.extend(lang_file.sources.difference(&self.base.sources).flat_map(
-                |s| {
-                    lang_file
-                        .source_to_id(*s)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|id| MissingTranslation::new(*lang_code, id))
-                },
-            ));
+        for (&id, &(source, _)) in self.base.ids_to_source_and_translation.iter() {
+            changed_source_ids.extend(
+                self.languages
+                    .iter()
+                    .filter_map(|(l, f)| f.get_source_and_translation(id).map(|e| ((l, f), e)))
+                    .filter_map(|(b, (s, _))| {
+                        (s != source).then(|| MissingTranslation::new(*b.0, id))
+                    }),
+            );
         }
         changed_source_ids
     }
@@ -581,17 +592,24 @@ impl Translator {
         Ok(())
     }
 
+    pub fn change_source(&mut self, language: LanguageStr, id: Spur, source: Spur) -> Result<()> {
+        let source_txt = self.resolve(source).to_owned();
+        self.languages
+            .get_mut(&language)
+            .ok_or(error::Error::LanguageNotFound(language))?
+            .change_source(id, source, source_txt);
+        Ok(())
+    }
+
     pub fn get_source_and_translation(
         &self,
         language: LanguageStr,
         id: Spur,
     ) -> Result<Option<(Spur, Option<Spur>)>> {
         if language.is_base() {
-            return Ok(Some(
-                self.base
-                    .get_source_and_translation(id)
-                    .ok_or(error::Error::TranslationNotInBaseFile(id))?,
-            ));
+            return Ok(Some(self.base.get_source_and_translation(id).ok_or(
+                error::Error::TranslationNotInBaseFile(self.resolve(id).to_string()),
+            )?));
         }
         Ok(self
             .languages

@@ -171,24 +171,33 @@ impl Context {
     }
 }
 
-fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
+fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
+    let mismatched_sources = translator.find_changed_source_text();
+    let mut mismatched_sources_translations = Vec::new();
+    if !mismatched_sources.is_empty() {
+        println!(
+            "The source text of {} translations changed.",
+            mismatched_sources.len()
+        );
+        mismatched_sources_translations.append(&mut handle_changed_source_texts(
+            mismatched_sources,
+            &mut translator,
+            add,
+        )?);
+    }
     let missing_translations = translator.find_missing_translations();
     println!(
         "There are {} translations missing.",
         missing_translations.len()
     );
-    let mismatched_sources = translator.find_changed_source_text();
-    println!(
-        "The source text of {} translations changed.",
-        mismatched_sources.len()
-    );
     let (mut added_translations, skipped_translations, mut made_translations) =
-        handle_missing_translations(&mut translator, auto, missing_translations)?;
+        handle_missing_translations(&mut translator, add, missing_translations)?;
     if skipped_translations > 0 {
         eprintln!(
             "Could not auto translate {skipped_translations} translations. Enable --edit flag to manually translate entries or accept more things automatically."
         );
     }
+    made_translations.append(&mut mismatched_sources_translations);
     made_translations.sort_by_key(|t| t.from);
     let mut decision = Decision::No;
     let context = Context::new();
@@ -202,8 +211,53 @@ fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
         }
     }
     println!("Added {} translations.", added_translations);
+
     translator.save_files()?;
     Ok(())
+}
+
+fn handle_changed_source_texts(
+    mismatched_sources: Vec<xliff_translation::MissingTranslation>,
+    translator: &mut Translator,
+    add: Add,
+) -> anyhow::Result<Vec<UndecidedTranslation>> {
+    let mut skipped = 0;
+    let mut result = Vec::new();
+    for mismatched in mismatched_sources {
+        let Some((old_source, old_translation)) =
+            translator.get_source_and_translation(mismatched.language, mismatched.id)?
+        else {
+            todo!("How Reachable?");
+        };
+        let (new_source, _) = translator
+            .get_source_and_translation(LanguageStr::try_from_str("g")?, mismatched.id)?
+            .unwrap();
+        translator.change_source(mismatched.language, mismatched.id, new_source)?;
+        let Some(old_translation) = old_translation else {
+            skipped += 1;
+            continue;
+        };
+        let to = LazyTranslation::instant(old_translation);
+        let is_german = is_german(mismatched.language);
+        if result.last().is_some_and(|l: &UndecidedTranslation| {
+            l.from == new_source && l.is_german == is_german
+        }) {
+            let last = result.last_mut().unwrap();
+            last.full_id.push((mismatched.language, mismatched.id));
+            last.to.combine(to);
+        } else {
+            result.push(UndecidedTranslation {
+                to,
+                full_id: vec![(mismatched.language, mismatched.id)],
+                from: new_source,
+                is_german,
+            });
+        }
+    }
+    println!(
+        "Skipped {skipped} entries, since they did not have a translation. Translations will be added next."
+    );
+    Ok(result)
 }
 
 fn handle_missing_translations(

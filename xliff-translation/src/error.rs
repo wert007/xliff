@@ -26,6 +26,6 @@ pub enum Error {
     SerializingError(#[from] quick_xml::se::SeError),
     #[error("Language {0} does not exist right now.")]
     LanguageNotFound(LanguageStr),
-    #[error("Translation was not found in base file. Internal id was {0:?}.")]
-    TranslationNotInBaseFile(Spur),
+    #[error("Translation was not found in base file. Its id was '{0}'.")]
+    TranslationNotInBaseFile(String),
 }
