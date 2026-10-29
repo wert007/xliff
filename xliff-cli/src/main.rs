@@ -170,11 +170,8 @@ impl Context {
         Self {}
     }
 }
+
 fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
-    let mut added_translations = 0;
-    let mut skipped_translations = 0;
-    let mut made_translations: Vec<UndecidedTranslation> = Vec::new();
-    let german_languages: Vec<_> = translator.languages().filter(|l| is_german(*l)).collect();
     let missing_translations = translator.find_missing_translations();
     println!(
         "There are {} translations missing.",
@@ -185,6 +182,39 @@ fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
         "The source text of {} translations changed.",
         mismatched_sources.len()
     );
+    let (mut added_translations, skipped_translations, mut made_translations) =
+        handle_missing_translations(&mut translator, auto, missing_translations)?;
+    if skipped_translations > 0 {
+        eprintln!(
+            "Could not auto translate {skipped_translations} translations. Enable --edit flag to manually translate entries or accept more things automatically."
+        );
+    }
+    made_translations.sort_by_key(|t| t.from);
+    let mut decision = Decision::No;
+    let context = Context::new();
+    for mut undecided in made_translations {
+        added_translations += undecided.decide(&mut translator, &mut decision, &context)?;
+        if decision == Decision::HardExit {
+            println!(
+                "\u{1b}[0;31mProgram was stopped. Cancelling execution, no translation was saved.\u{1b}[0m",
+            );
+            return Ok(());
+        }
+    }
+    println!("Added {} translations.", added_translations);
+    translator.save_files()?;
+    Ok(())
+}
+
+fn handle_missing_translations(
+    translator: &mut Translator,
+    auto: Add,
+    missing_translations: Vec<xliff_translation::MissingTranslation>,
+) -> Result<(usize, usize, Vec<UndecidedTranslation>), anyhow::Error> {
+    let german_languages: Vec<_> = translator.languages().filter(|l| is_german(*l)).collect();
+    let mut added_translations = 0;
+    let mut skipped_translations = 0;
+    let mut made_translations: Vec<UndecidedTranslation> = Vec::new();
     for t in missing_translations {
         let (source, _) = translator
             .get_source_and_translation(LanguageStr::try_from_str("g").unwrap(), t.id)?
@@ -243,7 +273,7 @@ fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
             }
             AutoTranslationHandling::Translate => {
                 added_translations += 1;
-                let recommended = recommended.resolve(&mut translator);
+                let recommended = recommended.resolve(translator);
                 assert_eq!(recommended.len(), 1);
                 translator.add_translation(t.language, t.id, recommended[0])?;
             }
@@ -264,26 +294,7 @@ fn run_add(mut translator: Translator, auto: Add) -> Result<(), anyhow::Error> {
             }
         }
     }
-    if skipped_translations > 0 {
-        eprintln!(
-            "Could not auto translate {skipped_translations} translations. Enable --edit flag to manually translate entries or accept more things automatically."
-        );
-    }
-    made_translations.sort_by_key(|t| t.from);
-    let mut decision = Decision::No;
-    let context = Context::new();
-    for mut undecided in made_translations {
-        added_translations += undecided.decide(&mut translator, &mut decision, &context)?;
-        if decision == Decision::HardExit {
-            println!(
-                "\u{1b}[0;31mProgram was stopped. Cancelling execution, no translation was saved.\u{1b}[0m",
-            );
-            return Ok(());
-        }
-    }
-    println!("Added {} translations.", added_translations);
-    translator.save_files()?;
-    Ok(())
+    Ok((added_translations, skipped_translations, made_translations))
 }
 
 fn is_german(language: LanguageStr) -> bool {
