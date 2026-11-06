@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use xliff_translation::{LanguageStr, StringId, Translator, empty_string_id};
 
 use crate::{
@@ -54,11 +56,6 @@ impl std::str::FromStr for Decision {
         })
     }
 }
-
-// pub enum DecisionTakerResult {
-//     Recurse,
-
-// }
 
 pub struct DecisionTakerContext<'a> {
     translated: &'a mut usize,
@@ -410,7 +407,7 @@ fn found_related(
     }
 }
 
-fn ask_for_decision(
+pub fn ask_for_decision(
     decision: &mut Decision,
     count: usize,
     small: bool,
@@ -510,4 +507,54 @@ pub fn print_translation_entry_as_bullet_point(
     for text in text {
         println!("{text}");
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display)]
+pub enum ChangedSourceDecision {
+    Help,
+    DeleteTranslation,
+    KeepTranslation,
+    Ignore,
+    IgnoreAll,
+    HardExit,
+}
+impl ChangedSourceDecision {
+    pub(crate) fn print_help() {
+        println!("Use [i] to ignore this entry and do nothing.");
+        println!("Use [d] to ignore all entries and do nothing at all.");
+        println!("Use [y] to keep the translation.");
+        println!("Use [n] to reset the translation.");
+        println!("Use [q] to stop and exit early.");
+        println!("Use [?] to display this help.");
+    }
+}
+
+impl FromStr for ChangedSourceDecision {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "i" => Self::Ignore,
+            "d" => Self::IgnoreAll,
+            "y" => Self::KeepTranslation,
+            "n" => Self::DeleteTranslation,
+            "?" | "h" => Self::Help,
+            "q" => Self::HardExit,
+            _ => return Err(()),
+        })
+    }
+}
+
+pub(crate) fn ask_for_changed_source_decision(
+    decision: &mut ChangedSourceDecision,
+) -> ChangedSourceDecision {
+    if *decision == ChangedSourceDecision::IgnoreAll {
+        return ChangedSourceDecision::IgnoreAll;
+    }
+    let Ok(decision) =
+        inquire::CustomType::<ChangedSourceDecision>::new("What now? [i, d, y, n, ?]").prompt()
+    else {
+        return ChangedSourceDecision::HardExit;
+    };
+    decision
 }

@@ -2,10 +2,10 @@ use std::str::FromStr;
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
-use xliff_translation::{LanguageStr, Translator};
+use xliff_translation::{LanguageStr, MissingTranslation, Translator};
 
 use crate::{
-    interactive::{Decision, UndecidedTranslation},
+    interactive::{ChangedSourceDecision, Decision, UndecidedTranslation},
     utils::LazyTranslation,
 };
 
@@ -165,19 +165,23 @@ fn main() -> anyhow::Result<()> {
 
 fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
     let mismatched_sources = translator.find_changed_source_text();
-    let mut mismatched_sources_translations = Vec::new();
+    let mut missing_translations = translator.find_missing_translations();
     if !mismatched_sources.is_empty() {
         println!(
             "The source text of {} translations changed.",
             mismatched_sources.len()
         );
-        mismatched_sources_translations.append(&mut handle_changed_source_texts(
+        if handle_changed_source_texts(
             mismatched_sources,
             &mut translator,
-            add,
-        )?);
+            &mut missing_translations,
+        )? {
+            println!(
+                "\u{1b}[0;31mProgram was stopped. Cancelling execution, no translation was saved.\u{1b}[0m",
+            );
+            return Ok(());
+        }
     }
-    let missing_translations = translator.find_missing_translations();
     println!(
         "There are {} translations missing.",
         missing_translations.len()
@@ -189,7 +193,7 @@ fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
             "Could not auto translate {skipped_translations} translations. Enable --edit flag to manually translate entries or accept more things automatically."
         );
     }
-    made_translations.append(&mut mismatched_sources_translations);
+    // made_translations.append(&mut mismatched_sources_translations);
     made_translations.sort_by_key(|t| t.from);
     let mut decision = Decision::No;
     for mut undecided in made_translations {
@@ -210,20 +214,21 @@ fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
 fn handle_changed_source_texts(
     mismatched_sources: Vec<xliff_translation::MissingTranslation>,
     translator: &mut Translator,
-    _add: Add,
-) -> anyhow::Result<Vec<UndecidedTranslation>> {
+    missing_translations: &mut Vec<xliff_translation::MissingTranslation>,
+) -> anyhow::Result<bool> {
     let mut skipped = 0;
     let mut result = Vec::new();
+
+    let mut decision = ChangedSourceDecision::Ignore;
     for mismatched in mismatched_sources {
-        let Some((_old_source, old_translation)) =
+        if decision == ChangedSourceDecision::HardExit {
+            return Ok(true);
+        }
+        let Some((old_source, old_translation)) =
             translator.get_source_and_translation(mismatched.language, mismatched.id)?
         else {
             todo!("How Reachable?");
         };
-        let (new_source, _) = translator
-            .get_source_and_translation(LanguageStr::try_from_str("g")?, mismatched.id)?
-            .unwrap();
-        translator.change_source(mismatched.language, mismatched.id, new_source)?;
         let Some(old_translation) = old_translation else {
             skipped += 1;
             continue;
@@ -231,24 +236,90 @@ fn handle_changed_source_texts(
         let to = LazyTranslation::instant(old_translation);
         let is_german = is_german(mismatched.language);
         if result.last().is_some_and(|l: &UndecidedTranslation| {
-            l.from == new_source && l.is_german == is_german
+            l.from == old_source && l.is_german == is_german
         }) {
             let last = result.last_mut().unwrap();
             last.full_id.push((mismatched.language, mismatched.id));
             last.to.combine(to);
         } else {
+            if let Some(last) = result.last_mut() {
+                handle_changed_source_single(
+                    translator,
+                    &mut decision,
+                    last,
+                    missing_translations,
+                )?;
+            }
             result.push(UndecidedTranslation {
                 to,
                 full_id: vec![(mismatched.language, mismatched.id)],
-                from: new_source,
+                from: old_source,
                 is_german,
             });
         }
     }
+    if let Some(last) = result.last_mut() {
+        handle_changed_source_single(translator, &mut decision, last, missing_translations)?;
+    }
+    if skipped > 0 {
+        println!(
+            "Skipped {skipped} entries, since they did not have a translation. Translations will be added next."
+        );
+    }
+    Ok(false)
+}
+
+fn handle_changed_source_single(
+    translator: &mut Translator,
+    decision: &mut ChangedSourceDecision,
+    last: &mut UndecidedTranslation,
+    missing_translations: &mut Vec<xliff_translation::MissingTranslation>,
+) -> anyhow::Result<()> {
+    let id = last.full_id.first().map(|i| i.1).unwrap();
+    println!("(old) {}", translator.resolve(last.from));
     println!(
-        "Skipped {skipped} entries, since they did not have a translation. Translations will be added next."
+        "(new)  {}",
+        translator.resolve(
+            translator
+                .get_source_and_translation(LanguageStr::base(), id)?
+                .map(|b| b.0)
+                .unwrap()
+        )
     );
-    Ok(result)
+    let to = *last.to.resolve(translator).first().unwrap();
+    println!(" => {}", translator.resolve(to));
+
+    loop {
+        let cur_decision = interactive::ask_for_changed_source_decision(decision);
+        match cur_decision {
+            ChangedSourceDecision::Help => ChangedSourceDecision::print_help(),
+            ChangedSourceDecision::KeepTranslation | ChangedSourceDecision::DeleteTranslation => {
+                let keep = cur_decision == ChangedSourceDecision::KeepTranslation;
+
+                let (new_source, _) = translator
+                    .get_source_and_translation(
+                        LanguageStr::base(),
+                        last.full_id.first().unwrap().1,
+                    )?
+                    .unwrap();
+                for (lang, id) in &last.full_id {
+                    translator.change_source(*lang, *id, new_source)?;
+                }
+                if !keep {
+                    for (language, id) in last.full_id.iter().copied() {
+                        missing_translations.push(MissingTranslation { language, id });
+                    }
+                }
+                break;
+            }
+            ChangedSourceDecision::Ignore => break,
+            ChangedSourceDecision::IgnoreAll | ChangedSourceDecision::HardExit => {
+                *decision = cur_decision;
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn handle_missing_translations(

@@ -30,6 +30,9 @@ impl Display for LanguageStr {
 }
 
 impl LanguageStr {
+    pub fn base() -> Self {
+        Self(tinystr::TinyAsciiStr::try_from_str("g").unwrap())
+    }
     pub fn starts_with(&self, s: &str) -> bool {
         self.0.starts_with(s)
     }
