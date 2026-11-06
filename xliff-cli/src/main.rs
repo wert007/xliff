@@ -54,7 +54,7 @@ impl Args {
 #[derive(Debug, Subcommand, Clone)]
 enum Command {
     /// Test, that there are no untranslated entries left!
-    Untranslated(Untranslated),
+    Check(Check),
     /// Add translations, if there are some missing, has further options to select how translations are choosen.
     Add(Add),
     Edit(edit::Edit),
@@ -143,7 +143,7 @@ impl Add {
 }
 
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
-struct Untranslated;
+struct Check;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -156,7 +156,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
     match args.command {
-        Command::Untranslated(untranslated) => run_untranslated(translator, untranslated),
+        Command::Check(check) => run_check(translator, check),
         Command::Add(auto) => run_add(translator, auto),
         Command::Edit(edit) => edit::run_edit(translator, edit),
         Command::Api(api) => api.run(translator),
@@ -417,11 +417,17 @@ fn is_german(language: LanguageStr) -> bool {
     language.starts_with("de")
 }
 
-fn run_untranslated(translator: Translator, Untranslated: Untranslated) -> anyhow::Result<()> {
+fn run_check(translator: Translator, Check: Check) -> anyhow::Result<()> {
     let missing = translator.find_missing_translations();
     if !missing.is_empty() {
         bail!("Found {} untranslated entries.", missing.len());
-    } else {
-        Ok(())
     }
+    let changed = translator.find_changed_source_text();
+    if !changed.is_empty() {
+        bail!(
+            "Found {} entries, with outdated source text.",
+            changed.len()
+        );
+    }
+    Ok(())
 }
