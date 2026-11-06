@@ -163,13 +163,6 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-struct Context {}
-impl Context {
-    fn new() -> Self {
-        Self {}
-    }
-}
-
 fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
     let mismatched_sources = translator.find_changed_source_text();
     let mut mismatched_sources_translations = Vec::new();
@@ -199,9 +192,8 @@ fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
     made_translations.append(&mut mismatched_sources_translations);
     made_translations.sort_by_key(|t| t.from);
     let mut decision = Decision::No;
-    let context = Context::new();
     for mut undecided in made_translations {
-        added_translations += undecided.decide(&mut translator, &mut decision, &context)?;
+        added_translations += undecided.decide(&mut translator, &mut decision, &add)?;
         if decision == Decision::HardExit {
             println!(
                 "\u{1b}[0;31mProgram was stopped. Cancelling execution, no translation was saved.\u{1b}[0m",

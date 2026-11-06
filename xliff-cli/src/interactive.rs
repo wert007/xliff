@@ -1,7 +1,7 @@
 use xliff_translation::{LanguageStr, StringId, Translator, empty_string_id};
 
 use crate::{
-    Context,
+    Add,
     utils::{LazyTranslation, highlight},
 };
 
@@ -55,51 +55,62 @@ impl std::str::FromStr for Decision {
     }
 }
 
-impl UndecidedTranslation {
-    #[allow(clippy::only_used_in_recursion)]
-    pub fn decide(
-        &mut self,
-        translator: &mut Translator,
-        decision: &mut Decision,
-        context: &Context,
-    ) -> anyhow::Result<usize> {
-        let mut translated = 0;
-        let language_hint = (self.full_id.len() == 1).then(|| self.full_id[0].0);
-        let is_silent = *decision == Decision::Accept || *decision == Decision::Deny;
-        let to_id = self.to.resolve(translator);
-        let from = translator.resolve(self.from);
-        let count = self.full_id.len();
-        if !is_silent {
-            print_translation(translator, self.full_id[0].0, to_id, from, count);
-        }
-        let mut cur_decision = ask_for_decision(decision, count, false, to_id.len());
-        match cur_decision {
-            Decision::Accept => {
-                *decision = cur_decision;
-                let Some(selected) = ask_user_for_translation(translator, from, to_id)? else {
-                    return Ok(translated);
-                };
-                for (lang, id) in &self.full_id {
-                    translated += 1;
-                    translator.add_translation(*lang, *id, selected)?;
+// pub enum DecisionTakerResult {
+//     Recurse,
+
+// }
+
+pub struct DecisionTakerContext<'a> {
+    translated: &'a mut usize,
+    translator: &'a mut Translator,
+    overarching_decision: &'a mut Decision,
+}
+
+pub enum DecisionControlFlow {
+    Repeat,
+    Continue,
+    Exit,
+}
+
+impl DecisionTaker for Add {
+    fn decision_made(
+        &self,
+        decision: Decision,
+        undecided: &mut UndecidedTranslation,
+        ctx: &mut DecisionTakerContext<'_>,
+    ) -> anyhow::Result<DecisionControlFlow> {
+        let language_hint = (undecided.full_id.len() == 1).then(|| undecided.full_id[0].0);
+        let to_id = undecided.to.resolve(ctx.translator);
+        let from = ctx.translator.resolve(undecided.from);
+        match &decision {
+            Decision::Yes | Decision::Accept => {
+                if decision == Decision::Accept {
+                    *ctx.overarching_decision = decision.clone();
                 }
-            }
-            Decision::Yes => {
-                let Some(selected) = ask_user_for_translation(translator, from, to_id)? else {
-                    println!("No translation was added.");
-                    return Ok(translated);
+                let Some(selected) = ask_user_for_translation(ctx.translator, from, to_id)? else {
+                    if decision == Decision::Yes {
+                        println!("No translation was added.");
+                    }
+                    return Ok(DecisionControlFlow::Continue);
                 };
-                for (lang, id) in &self.full_id {
-                    translated += 1;
-                    translator.add_translation(*lang, *id, selected)?;
+                for (lang, id) in &undecided.full_id {
+                    *ctx.translated += 1;
+                    ctx.translator.add_translation(*lang, *id, selected)?;
                 }
             }
             Decision::Deny => {
-                *decision = cur_decision;
+                *ctx.overarching_decision = decision;
             }
             Decision::No => {}
+            Decision::Languages => {
+                let mut langs: Vec<_> = undecided.full_id.iter().map(|f| f.0.to_string()).collect();
+                langs.sort();
+                langs.dedup();
+                println!("Targeting these languages: {}", langs.join(", "));
+                return Ok(DecisionControlFlow::Repeat);
+            }
             Decision::Edit => {
-                let mut langs: Vec<_> = self.full_id.iter().map(|f| f.0.to_string()).collect();
+                let mut langs: Vec<_> = undecided.full_id.iter().map(|f| f.0.to_string()).collect();
                 langs.sort();
                 langs.dedup();
                 println!("Targeting {}:", langs.join(", "),);
@@ -110,9 +121,9 @@ impl UndecidedTranslation {
                 };
                 loop {
                     let to = if selected == empty_string_id() {
-                        translator.resolve(self.from)
+                        ctx.translator.resolve(undecided.from)
                     } else {
-                        translator.resolve(selected)
+                        ctx.translator.resolve(selected)
                     };
                     let Some(to) = inquire::Text::new("Enter translation:")
                         .with_initial_value(to)
@@ -124,15 +135,20 @@ impl UndecidedTranslation {
                         )
                         .prompt_skippable()?
                     else {
-                        return self.decide(translator, decision, context);
+                        return Ok(DecisionControlFlow::Repeat);
                     };
-                    let cur_decision = ask_for_decision(decision, count, true, to_id.len());
-                    let to_id = translator.intern(to);
+                    let cur_decision = ask_for_decision(
+                        ctx.overarching_decision, // Actually unused here.. hehe.
+                        undecided.full_id.len(),
+                        true,
+                        to_id.len(),
+                    );
+                    let to_id = ctx.translator.intern(to);
                     match cur_decision {
                         Decision::Yes => {
-                            for (lang, id) in &self.full_id {
-                                translated += 1;
-                                translator.add_translation(*lang, *id, to_id)?;
+                            for (lang, id) in &undecided.full_id {
+                                *ctx.translated += 1;
+                                ctx.translator.add_translation(*lang, *id, to_id)?;
                             }
                         }
                         Decision::No => {}
@@ -142,59 +158,103 @@ impl UndecidedTranslation {
                     break;
                 }
             }
-            Decision::Languages => {
-                let mut langs: Vec<_> = self.full_id.iter().map(|f| f.0.to_string()).collect();
-                langs.sort();
-                langs.dedup();
-                println!("Targeting these languages: {}", langs.join(", "));
-                return self.decide(translator, decision, context);
-            }
-            Decision::Help => unreachable!(),
             Decision::Split => {
-                for id in &self.full_id {
+                for id in &undecided.full_id {
                     UndecidedTranslation {
                         full_id: vec![*id],
-                        from: self.from,
-                        is_german: self.is_german,
+                        from: undecided.from,
+                        is_german: undecided.is_german,
                         to: LazyTranslation::multiple(to_id),
                     }
-                    .decide(translator, &mut cur_decision, context)?;
+                    .decide(ctx.translator, ctx.overarching_decision, self)?;
                 }
             }
-            Decision::FindSource => {
-                let related = translator
-                    .find_in_translations(&regex::escape(from), language_hint, false)
-                    .unwrap();
-                found_related(translator, from, related);
-                return self.decide(translator, decision, context);
-            }
-            Decision::Find(find) => {
-                let related = match translator.find_in_translations(&find, language_hint, false) {
-                    Ok(it) => it,
-                    Err(err) => {
-                        eprintln!("Failed parsing search term: {err}");
-                        return self.decide(translator, decision, context);
-                    }
-                };
-                found_related(translator, &find, related);
-                return self.decide(translator, decision, context);
-            }
             Decision::Context => {
-                let mut related: Vec<_> = self
+                let mut related: Vec<_> = undecided
                     .full_id
                     .iter()
-                    .flat_map(|(lang, id)| translator.find_related(*lang, *id))
-                    .filter(|r| (r.from != self.from) != (r.to != empty_string_id()))
+                    .flat_map(|(lang, id)| ctx.translator.find_related(*lang, *id))
+                    .filter(|r| (r.from != undecided.from) != (r.to != empty_string_id()))
                     .collect();
                 related.sort_by_key(|r| r.from);
                 related.dedup_by_key(|r| (r.from, r.to));
-                let entry_count = self.full_id.len();
-                found_context(translator, related, entry_count);
-                return self.decide(translator, decision, context);
+                let entry_count = undecided.full_id.len();
+                found_context(ctx.translator, related, entry_count);
+                return Ok(DecisionControlFlow::Repeat);
             }
+            Decision::FindSource => {
+                let related = ctx
+                    .translator
+                    .find_in_translations(&regex::escape(from), language_hint, false)
+                    .unwrap();
+                found_related(ctx.translator, from, related);
+                return Ok(DecisionControlFlow::Repeat);
+            }
+            Decision::Find(find) => {
+                match ctx
+                    .translator
+                    .find_in_translations(&find, language_hint, false)
+                {
+                    Ok(it) => {
+                        found_related(ctx.translator, &find, it);
+                    }
+                    Err(err) => {
+                        eprintln!("Failed parsing search term: {err}");
+                    }
+                };
+                return Ok(DecisionControlFlow::Repeat);
+            }
+            Decision::Help => todo!(),
             Decision::HardExit => {
-                *decision = cur_decision;
-                return Ok(0);
+                *ctx.overarching_decision = decision;
+                return Ok(DecisionControlFlow::Exit);
+            }
+        }
+        Ok(DecisionControlFlow::Continue)
+    }
+}
+
+pub trait DecisionTaker {
+    fn decision_made(
+        &self,
+        decision: Decision,
+        undecided: &mut UndecidedTranslation,
+        ctx: &mut DecisionTakerContext<'_>,
+    ) -> anyhow::Result<DecisionControlFlow>;
+}
+
+impl UndecidedTranslation {
+    #[allow(clippy::only_used_in_recursion)]
+    pub fn decide<DT: DecisionTaker>(
+        &mut self,
+        translator: &mut Translator,
+        decision: &mut Decision,
+        decision_taker: &DT,
+    ) -> anyhow::Result<usize> {
+        let mut translated = 0;
+        let is_silent = *decision == Decision::Accept || *decision == Decision::Deny;
+        let to_id = self.to.resolve(translator);
+        let from = translator.resolve(self.from);
+        let count = self.full_id.len();
+        let to_count = to_id.len();
+        if !is_silent {
+            print_translation(translator, self.full_id[0].0, to_id, from, count);
+        }
+        loop {
+            let cur_decision = ask_for_decision(decision, count, false, to_count);
+            let mut ctx = DecisionTakerContext {
+                overarching_decision: decision,
+                translated: &mut translated,
+                translator,
+            };
+            match decision_taker.decision_made(cur_decision, self, &mut ctx)? {
+                DecisionControlFlow::Continue => {
+                    break;
+                }
+                DecisionControlFlow::Exit => {
+                    return Ok(translated);
+                }
+                DecisionControlFlow::Repeat => {}
             }
         }
         Ok(translated)

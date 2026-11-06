@@ -20,7 +20,7 @@ pub use error::Error;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LanguageStr(tinystr::TinyAsciiStr<8>);
 
 impl Display for LanguageStr {
@@ -56,10 +56,19 @@ pub type Result<T> = std::result::Result<T, error::Error>;
 //     target: Option<String>,
 // }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord)]
 pub struct MissingTranslation {
     pub language: LanguageStr,
     pub id: Spur,
+}
+
+impl PartialOrd for MissingTranslation {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.id.partial_cmp(&other.id) {
+            Some(core::cmp::Ordering::Equal) => self.language.0.partial_cmp(&other.language.0),
+            ord => return ord,
+        }
+    }
 }
 
 impl MissingTranslation {
@@ -538,6 +547,7 @@ impl Translator {
                     }),
             );
         }
+        changed_source_ids.sort();
         changed_source_ids
     }
 
