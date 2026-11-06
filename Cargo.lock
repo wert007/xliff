@@ -537,6 +537,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dissimilar"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aeda16ab4059c5fd2a83f2b9c9e9c981327b18aa8e3b313f7e6563799d4f093e"
+
+[[package]]
 name = "document-features"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2808,6 +2814,7 @@ dependencies = [
  "anyhow",
  "clap",
  "comfy-table",
+ "dissimilar",
  "glob",
  "indicatif 0.17.11",
  "inquire",

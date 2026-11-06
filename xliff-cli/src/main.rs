@@ -276,16 +276,33 @@ fn handle_changed_source_single(
     missing_translations: &mut Vec<xliff_translation::MissingTranslation>,
 ) -> anyhow::Result<()> {
     let id = last.full_id.first().map(|i| i.1).unwrap();
-    println!("(old) {}", translator.resolve(last.from));
-    println!(
-        "(new)  {}",
-        translator.resolve(
-            translator
-                .get_source_and_translation(LanguageStr::base(), id)?
-                .map(|b| b.0)
-                .unwrap()
-        )
+    let from = translator.resolve(last.from);
+    let to = translator.resolve(
+        translator
+            .get_source_and_translation(LanguageStr::base(), id)?
+            .map(|b| b.0)
+            .unwrap(),
     );
+    let diffs = dissimilar::diff(from, to);
+    print!("(source) ");
+    for diff in diffs {
+        match diff {
+            dissimilar::Chunk::Equal(it) => print!("{it}"),
+            dissimilar::Chunk::Delete(del) => print!(
+                "{}{del}{}",
+                oxink::styles::BG_RED.open_escape(),
+                oxink::styles::BG_RED.close_escape()
+            ),
+            dissimilar::Chunk::Insert(ins) => {
+                print!(
+                    "{}{ins}{}",
+                    oxink::styles::BG_GREEN.open_escape(),
+                    oxink::styles::BG_GREEN.close_escape()
+                )
+            }
+        }
+    }
+    println!();
     let to = *last.to.resolve(translator).first().unwrap();
     println!(" => {}", translator.resolve(to));
 
