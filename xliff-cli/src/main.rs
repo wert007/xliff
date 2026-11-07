@@ -110,6 +110,9 @@ struct Add {
     /// enabled.
     #[clap(short, long)]
     edit: bool,
+    /// Skip cleanup check, before adding translations.
+    #[clap(short = 'c', long = "cleanup")]
+    skip_cleanup: bool,
 }
 
 impl Add {
@@ -174,6 +177,12 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
+    if !add.skip_cleanup {
+        let did_cleanup = cleanup::cleanup(&mut translator)?;
+        if did_cleanup {
+            return Ok(());
+        }
+    }
     let mismatched_sources = translator.find_changed_source_text();
     let mut missing_translations = translator.find_missing_translations();
     if !mismatched_sources.is_empty() {

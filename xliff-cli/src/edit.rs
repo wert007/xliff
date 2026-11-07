@@ -5,7 +5,7 @@ use inquire::ui::{Attributes, RenderConfig, Styled};
 use regex::Regex;
 use xliff_translation::{LanguageStr, TranslationEntry, Translator};
 
-use crate::interactive::print_translation_entry_as_bullet_point;
+use crate::{cleanup, interactive::print_translation_entry_as_bullet_point};
 
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Edit {
@@ -13,6 +13,9 @@ pub struct Edit {
     regex: bool,
     #[clap(short, long)]
     case_sensitive: bool,
+    /// Skip cleanup check, before editing translations.
+    #[clap(short = 'c', long = "cleanup")]
+    skip_cleanup: bool,
 }
 
 fn command_render_config() -> RenderConfig<'static> {
@@ -29,8 +32,15 @@ pub fn run_edit(
     Edit {
         mut regex,
         case_sensitive,
+        skip_cleanup,
     }: Edit,
 ) -> Result<(), anyhow::Error> {
+    if !skip_cleanup {
+        let did_cleanup = cleanup::cleanup(&mut translator)?;
+        if did_cleanup {
+            return Ok(());
+        }
+    }
     println!(
         "There are {} entries in total",
         translator.total_translation_count()

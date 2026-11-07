@@ -1,9 +1,21 @@
+use xliff_translation::Translator;
+
 use crate::Cleanup;
 
 pub(crate) fn run_cleanup(
     mut translator: xliff_translation::Translator,
     cleanup: Cleanup,
 ) -> Result<(), anyhow::Error> {
+    let cleaned_something_up = self::cleanup(&mut translator)?;
+    if cleaned_something_up && !cleanup.dry {
+        translator.save_files()?;
+    } else if !cleaned_something_up {
+        println!("Translations are structurally clean. Nothing to do.");
+    }
+    Ok(())
+}
+
+pub fn cleanup(translator: &mut Translator) -> anyhow::Result<bool> {
     let mut cleaned_something_up = false;
     let orphaned = translator.find_orphaned_translation_units();
     if !orphaned.is_empty() {
@@ -25,10 +37,5 @@ pub(crate) fn run_cleanup(
             println!("{} x {}", duplicates.len(), translator.resolve(id));
         }
     }
-    if cleaned_something_up && !cleanup.dry {
-        translator.save_files()?;
-    } else if !cleaned_something_up {
-        println!("Translations are structurally clean. Nothing to do.");
-    }
-    Ok(())
+    Ok(cleaned_something_up)
 }
