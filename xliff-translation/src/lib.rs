@@ -61,12 +61,12 @@ pub type Result<T> = std::result::Result<T, error::Error>;
 // }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord)]
-pub struct MissingTranslation {
+pub struct TranslationId {
     pub language: LanguageStr,
     pub id: Spur,
 }
 
-impl PartialOrd for MissingTranslation {
+impl PartialOrd for TranslationId {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match self.id.partial_cmp(&other.id) {
             Some(core::cmp::Ordering::Equal) => self.language.0.partial_cmp(&other.language.0),
@@ -75,7 +75,7 @@ impl PartialOrd for MissingTranslation {
     }
 }
 
-impl MissingTranslation {
+impl TranslationId {
     fn new(language: LanguageStr, id: Spur) -> Self {
         Self { language, id }
     }
@@ -463,6 +463,23 @@ impl TranslationFile {
     fn total_translation_count(&self) -> usize {
         self.translated_ids.len()
     }
+
+    fn delete_entry(&mut self, id: Spur, string_interner: &mut Rodeo) {
+        let index = self.ids[&id];
+        let BodyElement::Group(group) = &mut self.raw.files[index.file_index].body.elements[0]
+        else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        let GroupElement::TransUnit(moved_up_trans_unit) =
+            group.elements.swap_remove(index.trans_unit_index)
+        else {
+            todo!("This is kind of a soft error, but also a hard error. hmm.")
+        };
+        let id = string_interner
+            .get(&moved_up_trans_unit.id)
+            .expect("Should have been read in during setup");
+        assert!(self.ids.insert(id, index).is_some());
+    }
 }
 
 fn get_all_ids_containing(pat: &str, string_interner: &Rodeo) -> Vec<Spur> {
@@ -526,43 +543,41 @@ impl Translator {
         })
     }
 
-    pub fn find_missing_translations(&self) -> Vec<MissingTranslation> {
+    pub fn find_missing_translations(&self) -> Vec<TranslationId> {
         let mut missing_ids = Vec::new();
         for (lang_code, lang_file) in &self.languages {
             missing_ids.extend(
                 self.base
                     .translated_ids
                     .difference(&lang_file.translated_ids)
-                    .map(|id| MissingTranslation::new(*lang_code, *id)),
+                    .map(|id| TranslationId::new(*lang_code, *id)),
             );
         }
         missing_ids
     }
 
-    pub fn find_changed_source_text(&self) -> Vec<MissingTranslation> {
+    pub fn find_changed_source_text(&self) -> Vec<TranslationId> {
         let mut changed_source_ids = Vec::new();
         for (&id, &(source, _)) in self.base.ids_to_source_and_translation.iter() {
             changed_source_ids.extend(
                 self.languages
                     .iter()
                     .filter_map(|(l, f)| f.get_source_and_translation(id).map(|e| ((l, f), e)))
-                    .filter_map(|(b, (s, _))| {
-                        (s != source).then(|| MissingTranslation::new(*b.0, id))
-                    }),
+                    .filter_map(|(b, (s, _))| (s != source).then(|| TranslationId::new(*b.0, id))),
             );
         }
         changed_source_ids.sort();
         changed_source_ids
     }
 
-    pub fn find_untranslated_entries(&self) -> Vec<MissingTranslation> {
+    pub fn find_untranslated_entries(&self) -> Vec<TranslationId> {
         let mut missing_ids = Vec::new();
         for (lang_code, lang_file) in &self.languages {
             missing_ids.extend(
                 lang_file
                     .ids_with_same_translation
                     .iter()
-                    .map(|id| MissingTranslation::new(*lang_code, *id)),
+                    .map(|id| TranslationId::new(*lang_code, *id)),
             );
         }
         missing_ids
@@ -639,7 +654,7 @@ impl Translator {
             .get_source_and_translation(id))
     }
 
-    pub fn find_regex_match(&self, needle: impl Borrow<regex::Regex>) -> Vec<MissingTranslation> {
+    pub fn find_regex_match(&self, needle: impl Borrow<regex::Regex>) -> Vec<TranslationId> {
         let needle = needle.borrow();
         let mut result = Vec::new();
         for (lang_code, lang_file) in &self.languages {
@@ -647,13 +662,13 @@ impl Translator {
                 lang_file
                     .search_for_source_regex(needle, &self.string_interner)
                     .into_iter()
-                    .map(|id| MissingTranslation::new(*lang_code, id)),
+                    .map(|id| TranslationId::new(*lang_code, id)),
             );
             result.extend(
                 lang_file
                     .search_for_target_regex(needle, &self.string_interner)
                     .into_iter()
-                    .map(|id| MissingTranslation::new(*lang_code, id)),
+                    .map(|id| TranslationId::new(*lang_code, id)),
             );
         }
         result
@@ -740,5 +755,26 @@ impl Translator {
             .values()
             .map(|l| l.total_translation_count())
             .sum()
+    }
+
+    pub fn find_orphaned_translation_units(&self) -> Vec<TranslationId> {
+        let parented_ids: HashSet<_> = self.base.ids.keys().copied().collect();
+        let mut result = Vec::new();
+        for (&language, file) in &self.languages {
+            let ids: HashSet<_> = file.ids.keys().copied().collect();
+            result.extend(
+                ids.difference(&parented_ids)
+                    .copied()
+                    .map(|id| TranslationId { language, id }),
+            );
+        }
+        result
+    }
+
+    pub fn delete_entry(&mut self, entry: TranslationId) {
+        self.languages
+            .get_mut(&entry.language)
+            .expect("languages should have been populated during loading")
+            .delete_entry(entry.id, &mut self.string_interner)
     }
 }

@@ -257,11 +257,7 @@ impl UndecidedTranslation {
         Ok(translated)
     }
 
-    pub fn integrate(
-        &mut self,
-        t: xliff_translation::MissingTranslation,
-        recommended: LazyTranslation,
-    ) {
+    pub fn integrate(&mut self, t: xliff_translation::TranslationId, recommended: LazyTranslation) {
         self.full_id.push((t.language, t.id));
         self.to.combine(recommended);
     }

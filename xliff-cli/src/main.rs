@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
-use xliff_translation::{LanguageStr, MissingTranslation, Translator};
+use xliff_translation::{LanguageStr, TranslationId, Translator};
 
 use crate::{
     interactive::{ChangedSourceDecision, Decision, UndecidedTranslation},
@@ -148,7 +148,11 @@ impl Add {
 struct Check;
 
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
-struct Cleanup;
+struct Cleanup {
+    /// Run cleanup, but do not change anything
+    #[clap(short, long)]
+    dry: bool,
+}
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -218,9 +222,9 @@ fn run_add(mut translator: Translator, add: Add) -> Result<(), anyhow::Error> {
 }
 
 fn handle_changed_source_texts(
-    mismatched_sources: Vec<xliff_translation::MissingTranslation>,
+    mismatched_sources: Vec<xliff_translation::TranslationId>,
     translator: &mut Translator,
-    missing_translations: &mut Vec<xliff_translation::MissingTranslation>,
+    missing_translations: &mut Vec<xliff_translation::TranslationId>,
 ) -> anyhow::Result<bool> {
     let mut skipped = 0;
     let mut result = Vec::new();
@@ -279,7 +283,7 @@ fn handle_changed_source_single(
     translator: &mut Translator,
     decision: &mut ChangedSourceDecision,
     last: &mut UndecidedTranslation,
-    missing_translations: &mut Vec<xliff_translation::MissingTranslation>,
+    missing_translations: &mut Vec<xliff_translation::TranslationId>,
 ) -> anyhow::Result<()> {
     let id = last.full_id.first().map(|i| i.1).unwrap();
     let from = translator.resolve(last.from);
@@ -330,7 +334,7 @@ fn handle_changed_source_single(
                 }
                 if !keep {
                     for (language, id) in last.full_id.iter().copied() {
-                        missing_translations.push(MissingTranslation { language, id });
+                        missing_translations.push(TranslationId { language, id });
                     }
                 }
                 break;
@@ -348,7 +352,7 @@ fn handle_changed_source_single(
 fn handle_missing_translations(
     translator: &mut Translator,
     auto: Add,
-    missing_translations: Vec<xliff_translation::MissingTranslation>,
+    missing_translations: Vec<xliff_translation::TranslationId>,
 ) -> Result<(usize, usize, Vec<UndecidedTranslation>), anyhow::Error> {
     let german_languages: Vec<_> = translator.languages().filter(|l| is_german(*l)).collect();
     let mut added_translations = 0;
