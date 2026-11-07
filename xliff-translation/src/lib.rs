@@ -17,6 +17,7 @@ pub type StringId = lasso::Spur;
 
 mod error;
 pub use error::Error;
+
 #[cfg(test)]
 mod tests;
 
@@ -565,6 +566,28 @@ impl Translator {
             );
         }
         missing_ids
+    }
+
+    pub fn find_duplicated_ids(
+        &self,
+        filter_by_source: bool,
+    ) -> HashMap<Spur, Vec<(LanguageStr, (Spur, Option<Spur>))>> {
+        let mut result: HashMap<Spur, Vec<(LanguageStr, (Spur, Option<Spur>))>> = HashMap::new();
+        for (lang_code, lang_file) in &self.languages {
+            for (id, entries) in &lang_file.duplicated_ids_to_source_and_translation {
+                let base_source = self.base.get_source_and_translation(*id).map(|x| x.0);
+                result.entry(*id).or_default().extend(
+                    entries
+                        .iter()
+                        .filter(|e| {
+                            !filter_by_source
+                                || (filter_by_source && base_source.is_some_and(|s| s == e.0))
+                        })
+                        .map(|e| (*lang_code, *e)),
+                )
+            }
+        }
+        result
     }
 
     pub fn add_translation(

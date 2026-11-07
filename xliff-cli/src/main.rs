@@ -11,6 +11,7 @@ use crate::{
 
 mod ai;
 mod api;
+mod cleanup;
 mod edit;
 mod interactive;
 mod utils;
@@ -57,6 +58,7 @@ enum Command {
     Check(Check),
     /// Add translations, if there are some missing, has further options to select how translations are choosen.
     Add(Add),
+    Cleanup(Cleanup),
     Edit(edit::Edit),
     /// The api interface, which allows to make chances via multiple calls to xliff-cli.
     Api(api::Api),
@@ -145,6 +147,9 @@ impl Add {
 #[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
 struct Check;
 
+#[derive(Debug, Parser, Clone, Copy, PartialEq, Eq, Default)]
+struct Cleanup;
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let translator = args.create_translator()?;
@@ -160,6 +165,7 @@ fn main() -> anyhow::Result<()> {
         Command::Add(auto) => run_add(translator, auto),
         Command::Edit(edit) => edit::run_edit(translator, edit),
         Command::Api(api) => api.run(translator),
+        Command::Cleanup(cleanup) => cleanup::run_cleanup(translator, cleanup),
     }
 }
 
@@ -445,6 +451,10 @@ fn run_check(translator: Translator, Check: Check) -> anyhow::Result<()> {
             "Found {} entries, with outdated source text.",
             changed.len()
         );
+    }
+    let duplications = translator.find_duplicated_ids(false);
+    if !duplications.is_empty() {
+        bail!("Found {} entries, with duplicated ids.", changed.len());
     }
     Ok(())
 }
